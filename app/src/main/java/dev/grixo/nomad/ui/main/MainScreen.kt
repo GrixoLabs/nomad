@@ -192,14 +192,14 @@ fun MainScreen(
                     )
                     BrandLogo()
                 }
-                Spacer(Modifier.height(10.dp))
+                Spacer(modifier = Modifier.height(10.dp))
                 Text(
                     "Tracking card",
                     style = MaterialTheme.typography.titleLarge,
                     color = colors.onSurface,
                     fontWeight = FontWeight.Bold
                 )
-                Spacer(Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(8.dp))
                 InfoRow(
                     "Coordinates",
                     when {
@@ -231,7 +231,7 @@ fun MainScreen(
                 InfoRow("Last upload", state.lastUploadTime)
 
                 if (state.errorMessage != null) {
-                    Spacer(Modifier.height(6.dp))
+                    Spacer(modifier = Modifier.height(6.dp))
                     Text(
                         text = state.errorMessage,
                         color = colors.error,
@@ -239,7 +239,7 @@ fun MainScreen(
                     )
                 }
 
-                Spacer(Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(12.dp))
                 Button(
                     onClick = onNearby,
                     enabled = state.latitude != null && state.longitude != null && !state.nearbyLoading,
@@ -345,7 +345,7 @@ fun MainScreen(
                     style = MaterialTheme.typography.titleLarge,
                     color = colors.onSurface
                 )
-                Spacer(Modifier.height(6.dp))
+                Spacer(modifier = Modifier.height(6.dp))
                 Text(
                     text = if (state.isRegistered && state.journalEnabled) {
                         stringResource(R.string.journal_hint)
@@ -355,7 +355,7 @@ fun MainScreen(
                     style = MaterialTheme.typography.bodyMedium,
                     color = colors.onSurfaceVariant
                 )
-                Spacer(modifier.height(10.dp))
+                Spacer(modifier = Modifier.height(10.dp))
                 if (state.isRegistered) {
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Button(
