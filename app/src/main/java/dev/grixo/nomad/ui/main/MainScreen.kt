@@ -55,6 +55,7 @@ import java.util.Locale
 fun MainRoute(
     onOpenJournal: () -> Unit,
     onOpenHistory: () -> Unit,
+    onOpenRegister: () -> Unit,
     onLoggedOut: () -> Unit,
     viewModel: MainViewModel = hiltViewModel()
 ) {
@@ -112,6 +113,7 @@ fun MainRoute(
         onNearbySort = viewModel::setNearbySort,
         onOpenJournal = onOpenJournal,
         onOpenHistory = onOpenHistory,
+        onOpenRegister = onOpenRegister,
         onLogout = viewModel::logout
     )
 }
@@ -127,6 +129,7 @@ fun MainScreen(
     onNearbySort: (String) -> Unit,
     onOpenJournal: () -> Unit,
     onOpenHistory: () -> Unit,
+    onOpenRegister: () -> Unit,
     onLogout: () -> Unit
 ) {
     val colors = MaterialTheme.colorScheme

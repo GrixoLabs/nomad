@@ -48,9 +48,11 @@ import dev.grixo.nomad.ui.components.BrandLogo
 @Composable
 fun RegistrationRoute(
     onFinished: () -> Unit,
+    onBack: (() -> Unit)? = null,
     viewModel: RegistrationViewModel = hiltViewModel()
 ) {
-    BackHandler(enabled = true) { /* no back during registration */ }
+    // Allow system back when opened from home (skipped guest re-registering).
+    BackHandler(enabled = onBack != null) { onBack?.invoke() }
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     LaunchedEffect(state.completed) {
         if (state.completed) onFinished()
@@ -63,7 +65,8 @@ fun RegistrationRoute(
         onAgeChange = viewModel::onAgeChange,
         onGenderChange = viewModel::onGenderChange,
         onSubmit = viewModel::submit,
-        onSkip = viewModel::skip
+        onSkip = viewModel::skip,
+        onBack = onBack
     )
 }
 
@@ -77,7 +80,8 @@ fun RegistrationScreen(
     onAgeChange: (String) -> Unit,
     onGenderChange: (Gender) -> Unit,
     onSubmit: () -> Unit,
-    onSkip: () -> Unit
+    onSkip: () -> Unit,
+    onBack: (() -> Unit)? = null
 ) {
     val colors = MaterialTheme.colorScheme
     val fieldColors = OutlinedTextFieldDefaults.colors(
@@ -112,6 +116,15 @@ fun RegistrationScreen(
                 .padding(horizontal = 24.dp, vertical = 40.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
+            if (onBack != null) {
+                TextButton(
+                    onClick = onBack,
+                    modifier = Modifier.align(Alignment.Start)
+                ) {
+                    Text("← Back", color = colors.primary)
+                }
+            }
+
             AnimatedVisibility(
                 visible = true,
                 enter = fadeIn() + slideInVertically { it / 4 }

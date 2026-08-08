@@ -231,7 +231,8 @@ class MainViewModel @Inject constructor(
     }
 
     companion object {
+        /** Display precision only — DB keeps full GPS precision. */
         fun formatCoord(value: Double): String =
-            String.format(Locale.US, "%.5f", value)
+            String.format(Locale.US, "%.3f", value)
     }
 }

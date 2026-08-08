@@ -1,6 +1,5 @@
 package dev.grixo.nomad.ui.navigation
 
-import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -66,13 +65,18 @@ fun NomadNavHost(
 
     NavHost(navController = navController, startDestination = start) {
         composable(NomadRoutes.REGISTER) {
-            // No system back during registration
-            BackHandler(enabled = true) { /* swallow */ }
+            val canPop = navController.previousBackStackEntry != null
             RegistrationRoute(
                 onFinished = {
                     navController.navigate(NomadRoutes.HOME) {
                         popUpTo(NomadRoutes.REGISTER) { inclusive = true }
                     }
+                },
+                // Back to home when guest opens register after skip; null on first-launch PENDING.
+                onBack = if (canPop) {
+                    { navController.popBackStack() }
+                } else {
+                    null
                 }
             )
         }
@@ -80,7 +84,11 @@ fun NomadNavHost(
             MainRoute(
                 onOpenJournal = { navController.navigate(NomadRoutes.JOURNAL) },
                 onOpenHistory = { navController.navigate(NomadRoutes.HISTORY) },
+                onOpenRegister = {
+                    navController.navigate(NomadRoutes.REGISTER)
+                },
                 onLoggedOut = {
+                    // Logout: land on register; back should not return to a logged-in home.
                     navController.navigate(NomadRoutes.REGISTER) {
                         popUpTo(0) { inclusive = true }
                     }

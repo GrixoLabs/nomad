@@ -68,8 +68,8 @@ class SignalRepositoryImpl @Inject constructor(
     private fun SignalEntity.toRequest(uuid: String) = SignalRequest(
         device_uuid = uuid,
         gps_timestamp_utc = gpsTimestampUtc,
-        latitude = kotlin.math.round(latitude * 1e5) / 1e5,
-        longitude = kotlin.math.round(longitude * 1e5) / 1e5,
+        latitude = latitude,
+        longitude = longitude,
         accuracy_m = accuracyM,
         altitude_m = altitudeM,
         speed_mps = speedMps,
