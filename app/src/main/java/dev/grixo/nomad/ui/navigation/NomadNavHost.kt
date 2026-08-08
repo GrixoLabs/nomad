@@ -31,39 +31,37 @@ fun NomadNavHost(
     val status by viewModel.status.collectAsStateWithLifecycle()
     val navController = rememberNavController()
 
-    when (status) {
-        null -> {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(MaterialTheme.colorScheme.background),
-                contentAlignment = Alignment.Center
-            ) {
-                CircularProgressIndicator()
-            }
+    val resolvedStatus = status
+    if (resolvedStatus == null) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(MaterialTheme.colorScheme.background),
+            contentAlignment = Alignment.Center
+        ) {
+            CircularProgressIndicator()
         }
+        return
+    }
 
-        else -> {
-            val start = when (status) {
-                OnboardingStatus.PENDING -> NomadRoutes.REGISTER
-                OnboardingStatus.REGISTERED,
-                OnboardingStatus.SKIPPED -> NomadRoutes.HOME
-            }
+    val start = when (resolvedStatus) {
+        OnboardingStatus.PENDING -> NomadRoutes.REGISTER
+        OnboardingStatus.REGISTERED,
+        OnboardingStatus.SKIPPED -> NomadRoutes.HOME
+    }
 
-            NavHost(navController = navController, startDestination = start) {
-                composable(NomadRoutes.REGISTER) {
-                    RegistrationRoute(
-                        onFinished = {
-                            navController.navigate(NomadRoutes.HOME) {
-                                popUpTo(NomadRoutes.REGISTER) { inclusive = true }
-                            }
-                        }
-                    )
+    NavHost(navController = navController, startDestination = start) {
+        composable(NomadRoutes.REGISTER) {
+            RegistrationRoute(
+                onFinished = {
+                    navController.navigate(NomadRoutes.HOME) {
+                        popUpTo(NomadRoutes.REGISTER) { inclusive = true }
+                    }
                 }
-                composable(NomadRoutes.HOME) {
-                    MainRoute()
-                }
-            }
+            )
+        }
+        composable(NomadRoutes.HOME) {
+            MainRoute()
         }
     }
 }
