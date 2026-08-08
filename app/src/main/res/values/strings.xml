@@ -15,7 +15,7 @@
     <string name="name_required">Name is required</string>
     <string name="age_invalid">Enter an age between 13 and 120</string>
     <string name="journal_locked_title">Journal locked</string>
-    <string name="journal_locked_body">Register with an email or phone to unlock place journals.</string>
+    <string name="journal_locked_body">Journal and history map are for registered users. Register to unlock (paid tier later).</string>
     <string name="journal_title">Journal</string>
     <string name="journal_hint">Up to 500 characters about this place.</string>
     <string name="journal_save">Save entry</string>

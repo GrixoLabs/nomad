@@ -347,7 +347,7 @@ fun MainScreen(
                 )
                 Spacer(Modifier.height(6.dp))
                 Text(
-                    text = if (state.journalEnabled) {
+                    text = if (state.isRegistered && state.journalEnabled) {
                         stringResource(R.string.journal_hint)
                     } else {
                         stringResource(R.string.journal_locked_body)
@@ -355,24 +355,35 @@ fun MainScreen(
                     style = MaterialTheme.typography.bodyMedium,
                     color = colors.onSurfaceVariant
                 )
-                Spacer(Modifier.height(10.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Spacer(modifier.height(10.dp))
+                if (state.isRegistered) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(
+                            onClick = onOpenJournal,
+                            enabled = state.journalEnabled,
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(14.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = colors.secondary,
+                                contentColor = colors.onSecondary
+                            )
+                        ) { Text("Write") }
+                        OutlinedButton(
+                            onClick = onOpenHistory,
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(14.dp)
+                        ) { Text("History map") }
+                    }
+                } else {
                     Button(
-                        onClick = onOpenJournal,
-                        enabled = state.journalEnabled,
-                        modifier = Modifier.weight(1f),
+                        onClick = onOpenRegister,
+                        modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(14.dp),
                         colors = ButtonDefaults.buttonColors(
-                            containerColor = colors.secondary,
-                            contentColor = colors.onSecondary
+                            containerColor = colors.primary,
+                            contentColor = colors.onPrimary
                         )
-                    ) { Text("Write") }
-                    OutlinedButton(
-                        onClick = onOpenHistory,
-                        enabled = state.isRegistered,
-                        modifier = Modifier.weight(1f),
-                        shape = RoundedCornerShape(14.dp)
-                    ) { Text("History map") }
+                    ) { Text("Register to unlock journal") }
                 }
             }
 
