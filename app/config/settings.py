@@ -18,6 +18,28 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     cors_origins: str = "*"
 
+    # Auth / JWT
+    jwt_secret: str = "change-me-in-production"
+    jwt_algorithm: str = "HS256"
+    access_token_expire_minutes: int = 30
+    refresh_token_expire_days: int = 30
+
+    # OTP
+    otp_length: int = 6
+    otp_expire_minutes: int = 10
+    otp_max_attempts: int = 5
+    otp_rate_limit_count: int = 3
+    otp_rate_limit_window_minutes: int = 15
+
+    # Resend (email)
+    resend_api_key: str | None = None
+    resend_from_email: str = "Nomad <onboarding@resend.dev>"
+
+    # Twilio (SMS) — mapped from your .env names
+    twilio_client_id: str | None = None  # Account SID
+    twilio_client_key: str | None = None  # Auth Token
+    twilio_from_number: str | None = None  # E.164 sender, e.g. +1...
+
     model_config = SettingsConfigDict(
         env_file=".env",
         case_sensitive=False,
