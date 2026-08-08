@@ -80,7 +80,9 @@ def login(request: LoginRequest, db: Session = Depends(get_db)):
 @router.post("/forgot-password", response_model=MessageResponse)
 def forgot_password(request: ForgotPasswordRequest, db: Session = Depends(get_db)):
     service.forgot_password(db, request)
-    return MessageResponse(message="If the account exists, a reset code was emailed.")
+    return MessageResponse(
+        message="If the account exists, a reset code was sent to email or phone."
+    )
 
 
 @router.post("/reset-password", response_model=MessageResponse)

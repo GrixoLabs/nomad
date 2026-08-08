@@ -210,6 +210,11 @@ class AuthService:
             email_verified=user.email_verified,
             phone_verified=user.phone_verified,
             journal_enabled=user.journal_enabled,
+            name=user.name,
+            email=user.email,
+            phone_number=user.phone_number,
+            age=user.age,
+            gender=user.gender,
         )
 
     def login(self, db: Session, request: LoginRequest) -> TokenResponse:
@@ -240,7 +245,10 @@ class AuthService:
         return self._issue_tokens(db, user)
 
     def forgot_password(self, db: Session, request: ForgotPasswordRequest) -> None:
-        user = self.users.get_by_email(db, str(request.email).lower())
+        email = str(request.email).lower() if request.email else None
+        user = self.users.get_by_email_or_phone(
+            db, email=email, phone=request.phone_number
+        )
         if user is None:
             return
 
@@ -253,10 +261,22 @@ class AuthService:
             expires_at=otp_expiry(),
         )
         self.codes.create(db, code)
-        self.email.send_otp(user.email, otp)  # type: ignore[arg-type]
+
+        # Prefer the channel the client asked for; otherwise use whichever is on file.
+        if request.email and user.email:
+            self.email.send_otp(user.email, otp)
+        elif request.phone_number and user.phone_number:
+            self.sms.send_otp(user.phone_number, otp)
+        elif user.email:
+            self.email.send_otp(user.email, otp)
+        elif user.phone_number:
+            self.sms.send_otp(user.phone_number, otp)
 
     def reset_password(self, db: Session, request: ResetPasswordRequest) -> None:
-        user = self.users.get_by_email(db, str(request.email).lower())
+        email = str(request.email).lower() if request.email else None
+        user = self.users.get_by_email_or_phone(
+            db, email=email, phone=request.phone_number
+        )
         if user is None:
             raise HTTPException(status_code=404, detail="User not found")
 

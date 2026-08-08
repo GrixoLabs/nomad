@@ -122,20 +122,45 @@ class TokenResponse(BaseModel):
     email_verified: bool
     phone_verified: bool
     journal_enabled: bool
+    name: str | None = None
+    email: str | None = None
+    phone_number: str | None = None
+    age: int | None = None
+    gender: str | None = None
 
 
 class ForgotPasswordRequest(BaseModel):
-    email: EmailStr
+    email: EmailStr | None = None
+    phone_number: str | None = Field(default=None, max_length=20)
+
+    @field_validator("phone_number")
+    @classmethod
+    def validate_phone(cls, value: str | None) -> str | None:
+        return _normalize_phone(value)
+
+    @model_validator(mode="after")
+    def require_identifier(self) -> "ForgotPasswordRequest":
+        if not self.email and not self.phone_number:
+            raise ValueError("Either email or phone_number is required")
+        return self
 
 
 class ResetPasswordRequest(BaseModel):
-    email: EmailStr
+    email: EmailStr | None = None
+    phone_number: str | None = Field(default=None, max_length=20)
     otp: str = Field(min_length=4, max_length=10)
     new_password: str = Field(min_length=8, max_length=128)
     confirm_password: str = Field(min_length=8, max_length=128)
 
+    @field_validator("phone_number")
+    @classmethod
+    def validate_phone(cls, value: str | None) -> str | None:
+        return _normalize_phone(value)
+
     @model_validator(mode="after")
     def passwords_match(self) -> "ResetPasswordRequest":
+        if not self.email and not self.phone_number:
+            raise ValueError("Either email or phone_number is required")
         if self.new_password != self.confirm_password:
             raise ValueError("new_password and confirm_password do not match")
         return self
