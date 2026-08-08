@@ -1,0 +1,10 @@
+[Unit]
+Description=Daily midnight UTC flush of Nomad weather_cache
+
+[Timer]
+OnCalendar=*-*-* 00:00:00 UTC
+Persistent=true
+Unit=nomad-flush-weather.service
+
+[Install]
+WantedBy=timers.target
