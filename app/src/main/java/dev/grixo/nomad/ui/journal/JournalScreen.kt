@@ -1,8 +1,10 @@
 package dev.grixo.nomad.ui.journal
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -17,6 +19,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.res.stringResource
@@ -31,6 +34,7 @@ fun JournalRoute(
     viewModel: JournalViewModel = hiltViewModel()
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
+    BackHandler(onBack = onClose)
     JournalScreen(
         state = state,
         onBodyChange = viewModel::onBodyChange,
@@ -55,9 +59,15 @@ fun JournalScreen(
                     listOf(colors.background, colors.surfaceVariant.copy(alpha = 0.5f))
                 )
             )
-            .padding(24.dp),
+            .padding(horizontal = 24.dp, vertical = 16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
+        TextButton(
+            onClick = onClose,
+            modifier = Modifier.align(Alignment.Start)
+        ) {
+            Text("← Back", color = colors.primary)
+        }
         Text(
             stringResource(R.string.journal_title),
             style = MaterialTheme.typography.headlineMedium,
@@ -85,7 +95,7 @@ fun JournalScreen(
         if (state.savedMessage != null) {
             Text(state.savedMessage, color = colors.secondary)
         }
-        Spacer(Modifier.height(8.dp))
+        Spacer(modifier = Modifier.height(8.dp))
         Button(
             onClick = onSave,
             enabled = !state.saving && state.body.isNotBlank() && state.body.length <= 500,
@@ -99,9 +109,6 @@ fun JournalScreen(
             )
         ) {
             Text(if (state.saving) "Saving…" else stringResource(R.string.journal_save))
-        }
-        TextButton(onClick = onClose, modifier = Modifier.fillMaxWidth()) {
-            Text("Done", color = colors.primary)
         }
     }
 }

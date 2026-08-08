@@ -25,6 +25,7 @@ data class MainUiState(
     val nearbySort: String = "popularity",
     val showNearby: Boolean = false,
     val contextLoading: Boolean = false,
+    val isRefreshing: Boolean = false,
     val batteryPercent: Int? = null,
     val networkType: String = "Unknown",
     val lastUploadTime: String = "Never",

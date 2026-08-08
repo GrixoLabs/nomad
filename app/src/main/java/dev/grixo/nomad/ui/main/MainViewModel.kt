@@ -179,38 +179,42 @@ class MainViewModel @Inject constructor(
 
     private fun refreshPlaceContext(lat: Double, lon: Double) {
         viewModelScope.launch {
-            _uiState.update { it.copy(contextLoading = true) }
-            try {
-                val place = api.resolvePlace(lat, lon)
-                if (place.isSuccessful && place.body() != null) {
-                    val body = place.body()!!
-                    val label = body.area_label
-                        ?: listOfNotNull(body.locality, body.city, body.region, body.country)
-                            .distinct()
-                            .joinToString(", ")
-                            .ifBlank { body.display_name }
-                    _uiState.update { it.copy(placeLabel = label) }
-                }
-            } catch (_: Exception) {
-                // keep previous label
-            }
-            try {
-                val weather = api.getWeather(lat, lon)
-                if (weather.isSuccessful && weather.body() != null) {
-                    val body = weather.body()!!
-                    _uiState.update {
-                        it.copy(
-                            weatherSummary = body.summary,
-                            temperatureC = body.temperature_c
-                        )
-                    }
-                }
-            } catch (_: Exception) {
-                // keep previous weather
-            }
-            _uiState.update { it.copy(contextLoading = false) }
+            refreshPlaceContextSuspend(lat, lon)
             checkBackendHealth()
         }
+    }
+
+    private suspend fun refreshPlaceContextSuspend(lat: Double, lon: Double) {
+        _uiState.update { it.copy(contextLoading = true) }
+        try {
+            val place = api.resolvePlace(lat, lon)
+            if (place.isSuccessful && place.body() != null) {
+                val body = place.body()!!
+                val label = body.area_label
+                    ?: listOfNotNull(body.locality, body.city, body.region, body.country)
+                        .distinct()
+                        .joinToString(", ")
+                        .ifBlank { body.display_name }
+                _uiState.update { it.copy(placeLabel = label) }
+            }
+        } catch (_: Exception) {
+            // keep previous label
+        }
+        try {
+            val weather = api.getWeather(lat, lon)
+            if (weather.isSuccessful && weather.body() != null) {
+                val body = weather.body()!!
+                _uiState.update {
+                    it.copy(
+                        weatherSummary = body.summary,
+                        temperatureC = body.temperature_c
+                    )
+                }
+            }
+        } catch (_: Exception) {
+            // keep previous weather
+        }
+        _uiState.update { it.copy(contextLoading = false) }
     }
 
     fun triggerManualSync() {
@@ -228,6 +232,23 @@ class MainViewModel @Inject constructor(
             syncRequest
         )
         checkBackendHealth()
+    }
+
+    fun refreshAll() {
+        viewModelScope.launch {
+            _uiState.update { it.copy(isRefreshing = true, errorMessage = null) }
+            try {
+                checkBackendHealth()
+                triggerManualSync()
+                val lat = _uiState.value.latitude
+                val lon = _uiState.value.longitude
+                if (lat != null && lon != null) {
+                    refreshPlaceContextSuspend(lat, lon)
+                }
+            } finally {
+                _uiState.update { it.copy(isRefreshing = false) }
+            }
+        }
     }
 
     companion object {

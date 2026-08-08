@@ -1,8 +1,11 @@
 package dev.grixo.nomad.ui.history
 
 import android.annotation.SuppressLint
+import android.webkit.WebChromeClient
+import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -16,10 +19,12 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
@@ -36,21 +41,25 @@ fun HistoryMapRoute(
     viewModel: HistoryMapViewModel = hiltViewModel()
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
+    BackHandler(onBack = onClose)
     HistoryMapScreen(
         state = state,
         onDaysChange = viewModel::setDays,
         onClose = onClose,
+        onRefresh = viewModel::reload,
         onDismissDetail = viewModel::dismissDetail,
         onSelectJournal = viewModel::selectJournal,
         onSelectNight = viewModel::selectNight
     )
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HistoryMapScreen(
     state: HistoryMapUiState,
     onDaysChange: (Int) -> Unit,
     onClose: () -> Unit,
+    onRefresh: () -> Unit,
     onDismissDetail: () -> Unit,
     onSelectJournal: (Long) -> Unit,
     onSelectNight: (Long) -> Unit
@@ -64,18 +73,18 @@ fun HistoryMapScreen(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 12.dp),
+                .padding(horizontal = 8.dp, vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
+            TextButton(onClick = onClose) {
+                Text("← Back", color = colors.primary)
+            }
             Text(
                 "History map",
                 style = MaterialTheme.typography.titleLarge,
                 color = colors.onBackground,
                 modifier = Modifier.weight(1f)
             )
-            TextButton(onClick = onClose) {
-                Text("Done", color = colors.primary)
-            }
         }
 
         Row(
@@ -91,26 +100,34 @@ fun HistoryMapScreen(
             }
         }
 
-        Box(
+        PullToRefreshBox(
+            isRefreshing = state.loading,
+            onRefresh = onRefresh,
             modifier = Modifier
                 .weight(1f)
                 .fillMaxWidth()
                 .padding(12.dp)
         ) {
-            when {
-                state.loading -> CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
-                state.errorMessage != null -> Text(
-                    state.errorMessage,
-                    color = colors.error,
-                    modifier = Modifier.align(Alignment.Center).padding(16.dp)
-                )
-                state.tileUrlTemplate != null && state.historyJson != null -> {
-                    StadiaMapWebView(
-                        tileUrl = state.tileUrlTemplate,
-                        historyJson = state.historyJson,
-                        onJournalClick = onSelectJournal,
-                        onNightClick = onSelectNight
-                    )
+            Box(modifier = Modifier.fillMaxSize()) {
+                when {
+                    state.loading && state.tileUrlTemplate == null -> {
+                        CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
+                    }
+                    state.errorMessage != null && state.tileUrlTemplate == null -> {
+                        Text(
+                            state.errorMessage,
+                            color = colors.error,
+                            modifier = Modifier.align(Alignment.Center).padding(16.dp)
+                        )
+                    }
+                    state.tileUrlTemplate != null && state.historyJson != null -> {
+                        HistoryMapWebView(
+                            tileUrl = state.tileUrlTemplate,
+                            historyJson = state.historyJson,
+                            onJournalClick = onSelectJournal,
+                            onNightClick = onSelectNight
+                        )
+                    }
                 }
             }
         }
@@ -147,7 +164,7 @@ fun HistoryMapScreen(
 
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
-private fun StadiaMapWebView(
+private fun HistoryMapWebView(
     tileUrl: String,
     historyJson: String,
     onJournalClick: (Long) -> Unit,
@@ -159,7 +176,13 @@ private fun StadiaMapWebView(
             WebView(context).apply {
                 settings.javaScriptEnabled = true
                 settings.domStorageEnabled = true
+                settings.cacheMode = WebSettings.LOAD_DEFAULT
+                settings.mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
+                settings.loadWithOverviewMode = true
+                settings.useWideViewPort = true
+                webChromeClient = WebChromeClient()
                 webViewClient = WebViewClient()
+                setLayerType(WebView.LAYER_TYPE_HARDWARE, null)
                 addJavascriptInterface(
                     object {
                         @android.webkit.JavascriptInterface
@@ -180,9 +203,9 @@ private fun StadiaMapWebView(
             val tag = "${tileUrl.hashCode()}:${historyJson.hashCode()}"
             if (webView.tag != tag) {
                 webView.tag = tag
-                val html = buildMapHtml(tileUrl, historyJson)
+                val html = buildMapHtml(normalizeTileUrl(tileUrl), historyJson)
                 webView.loadDataWithBaseURL(
-                    "https://tiles.stadiamaps.com/",
+                    "https://cdn.jsdelivr.net/",
                     html,
                     "text/html",
                     "UTF-8",
@@ -193,84 +216,75 @@ private fun StadiaMapWebView(
     )
 }
 
+/** Stadia @2x tiles are 512px; Leaflet expects standard 256 tiles unless detectRetina is used. */
+private fun normalizeTileUrl(tileUrl: String): String =
+    tileUrl
+        .replace("@2x.png", ".png")
+        .replace("@2x.jpg", ".jpg")
+
 private fun buildMapHtml(tileUrl: String, historyJson: String): String {
-    // Colors: navy track #1E3A8A, travel crimson #DC2626, journal pin #DC2626, night #1E3A8A
     val safeTile = JSONObject.quote(tileUrl)
+    val safeHistory = JSONObject.quote(historyJson)
     return """
 <!DOCTYPE html>
 <html>
 <head>
 <meta charset="utf-8"/>
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1"/>
-<link href="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css" rel="stylesheet"/>
-<script src="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js"></script>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"/>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>
 <style>
   html,body,#map{margin:0;padding:0;height:100%;width:100%;background:#0F172A}
-  .popup{font:14px/1.35 system-ui,sans-serif;max-width:240px;max-height:160px;overflow:auto}
+  .journal-pin{width:14px;height:14px;border-radius:50%;background:#DC2626;border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.4)}
+  .night-pin{width:28px;height:28px;border-radius:50%;border:3px solid #1E3A8A;background:rgba(30,58,138,.35);box-shadow:0 0 0 6px rgba(30,58,138,.25)}
 </style>
 </head>
 <body>
 <div id="map"></div>
 <script>
-const history = $historyJson;
+const history = JSON.parse($safeHistory);
 const tileUrl = $safeTile;
-const map = new maplibregl.Map({
-  container: 'map',
-  style: {
-    version: 8,
-    sources: {
-      stadia: {
-        type: 'raster',
-        tiles: [tileUrl],
-        tileSize: 256,
-        attribution: '© Stadia Maps © OpenMapTiles © OpenStreetMap'
-      }
-    },
-    layers: [{ id: 'stadia', type: 'raster', source: 'stadia' }]
-  },
-  center: [86.22, 22.82],
-  zoom: 11
-});
+const map = L.map('map', { zoomControl: true }).setView([22.82, 86.22], 12);
+L.tileLayer(tileUrl, {
+  maxZoom: 19,
+  attribution: '© OpenStreetMap / Stadia'
+}).addTo(map);
 
-function addLine(id, coords, color, width) {
-  if (coords.length < 2) return;
-  map.addSource(id, { type: 'geojson', data: { type: 'Feature', geometry: { type: 'LineString', coordinates: coords }}});
-  map.addLayer({ id: id, type: 'line', source: id, paint: { 'line-color': color, 'line-width': width, 'line-opacity': 0.9 }});
+const bounds = [];
+(history.segments || []).forEach((seg) => {
+  const latlngs = (seg.points || []).map(p => [p.latitude, p.longitude]);
+  latlngs.forEach(ll => bounds.push(ll));
+  if (latlngs.length >= 2) {
+    L.polyline(latlngs, {
+      color: seg.kind === 'travel' ? '#DC2626' : '#1E3A8A',
+      weight: seg.kind === 'travel' ? 4 : 3,
+      opacity: 0.9
+    }).addTo(map);
+  } else if (latlngs.length === 1) {
+    L.circleMarker(latlngs[0], {
+      radius: 4,
+      color: '#1E3A8A',
+      fillColor: '#1E3A8A',
+      fillOpacity: 0.9
+    }).addTo(map);
+  }
+});
+(history.night_stays || []).forEach((n) => {
+  const ll = [n.latitude, n.longitude];
+  bounds.push(ll);
+  const el = L.divIcon({ className: '', html: '<div class="night-pin"></div>', iconSize: [28,28], iconAnchor: [14,14] });
+  L.marker(ll, { icon: el }).addTo(map).on('click', () => NomadBridge.onNight(String(n.night_stay_id)));
+});
+(history.journal_pins || []).forEach((j) => {
+  const ll = [j.latitude, j.longitude];
+  bounds.push(ll);
+  const el = L.divIcon({ className: '', html: '<div class="journal-pin"></div>', iconSize: [14,14], iconAnchor: [7,7] });
+  L.marker(ll, { icon: el }).addTo(map).on('click', () => NomadBridge.onJournal(String(j.entry_id)));
+});
+if (bounds.length) {
+  map.fitBounds(bounds, { padding: [48, 48], maxZoom: 14 });
 }
-
-map.on('load', () => {
-  const bounds = new maplibregl.LngLatBounds();
-  let has = false;
-  (history.segments || []).forEach((seg, i) => {
-    const coords = (seg.points || []).map(p => [p.longitude, p.latitude]);
-    coords.forEach(c => { bounds.extend(c); has = true; });
-    const color = seg.kind === 'travel' ? '#DC2626' : '#1E3A8A';
-    const width = seg.kind === 'travel' ? 4 : 3;
-    addLine('seg-' + i, coords, color, width);
-  });
-  (history.night_stays || []).forEach((n) => {
-    bounds.extend([n.longitude, n.latitude]); has = true;
-    const el = document.createElement('div');
-    el.style.width = '28px'; el.style.height = '28px';
-    el.style.borderRadius = '50%';
-    el.style.border = '3px solid #1E3A8A';
-    el.style.boxShadow = '0 0 0 6px rgba(30,58,138,0.25), 0 0 0 12px rgba(30,58,138,0.12)';
-    el.style.background = 'rgba(30,58,138,0.35)';
-    el.onclick = () => NomadBridge.onNight(String(n.night_stay_id));
-    new maplibregl.Marker({ element: el }).setLngLat([n.longitude, n.latitude]).addTo(map);
-  });
-  (history.journal_pins || []).forEach((j) => {
-    bounds.extend([j.longitude, j.latitude]); has = true;
-    const el = document.createElement('div');
-    el.style.width = '14px'; el.style.height = '14px';
-    el.style.borderRadius = '50%';
-    el.style.background = '#DC2626';
-    el.style.border = '2px solid #fff';
-    el.onclick = () => NomadBridge.onJournal(String(j.entry_id));
-    new maplibregl.Marker({ element: el }).setLngLat([j.longitude, j.latitude]).addTo(map);
-  });
-  if (has) map.fitBounds(bounds, { padding: 48, maxZoom: 14 });
-});
+setTimeout(() => map.invalidateSize(), 120);
 </script>
 </body>
 </html>

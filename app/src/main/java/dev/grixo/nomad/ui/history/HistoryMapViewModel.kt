@@ -80,32 +80,37 @@ class HistoryMapViewModel @Inject constructor(
         }
     }
 
-    private fun reload() {
+    fun reload() {
         viewModelScope.launch {
             _uiState.update { it.copy(loading = true, errorMessage = null, detailTitle = null) }
+
             val mapConfig = journalRepository.loadMapConfig()
-            val history = journalRepository.loadHistory(_uiState.value.days)
-            if (mapConfig.isFailure) {
-                _uiState.update {
-                    it.copy(loading = false, errorMessage = "Map unavailable")
-                }
-                return@launch
+            val tileUrl = mapConfig.getOrNull()?.tile_url_template
+                ?: OSM_FALLBACK_TILES
+
+            val historyResult = journalRepository.loadHistory(_uiState.value.days)
+            val hist = historyResult.getOrElse {
+                HistoryResponse(days = _uiState.value.days)
             }
-            if (history.isFailure) {
-                _uiState.update {
-                    it.copy(loading = false, errorMessage = "History unavailable")
-                }
-                return@launch
-            }
-            val hist = history.getOrThrow()
+
             _uiState.update {
                 it.copy(
                     loading = false,
-                    tileUrlTemplate = mapConfig.getOrThrow().tile_url_template,
+                    tileUrlTemplate = tileUrl,
                     history = hist,
-                    historyJson = json.encodeToString(hist)
+                    historyJson = json.encodeToString(hist),
+                    errorMessage = when {
+                        historyResult.isFailure && mapConfig.isFailure -> "Map unavailable"
+                        historyResult.isFailure -> null // still show map with empty tracks
+                        else -> null
+                    }
                 )
             }
         }
+    }
+
+    companion object {
+        private const val OSM_FALLBACK_TILES =
+            "https://tile.openstreetmap.org/{z}/{x}/{y}.png"
     }
 }

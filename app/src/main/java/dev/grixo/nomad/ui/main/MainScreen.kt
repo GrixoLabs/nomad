@@ -28,6 +28,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.HorizontalDivider
@@ -35,6 +36,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -110,6 +112,7 @@ fun MainRoute(
             viewModel.setTrackingStatus(false)
         },
         onSync = viewModel::triggerManualSync,
+        onRefresh = viewModel::refreshAll,
         onNearby = viewModel::loadNearbyPlaces,
         onHideNearby = viewModel::hideNearby,
         onNearbySort = viewModel::setNearbySort,
@@ -120,12 +123,14 @@ fun MainRoute(
     )
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MainScreen(
     state: MainUiState,
     onStartTracking: () -> Unit,
     onStopTracking: () -> Unit,
     onSync: () -> Unit,
+    onRefresh: () -> Unit,
     onNearby: () -> Unit,
     onHideNearby: () -> Unit,
     onNearbySort: (String) -> Unit,
@@ -149,6 +154,11 @@ fun MainScreen(
                 )
             )
     ) {
+        PullToRefreshBox(
+            isRefreshing = state.isRefreshing,
+            onRefresh = onRefresh,
+            modifier = Modifier.fillMaxSize()
+        ) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -190,13 +200,17 @@ fun MainScreen(
                             .align(Alignment.TopStart)
                             .padding(end = 140.dp)
                     ) {
-                        if (!state.isRegistered) {
-                            TextButton(
-                                onClick = onOpenRegister,
-                                contentPadding = PaddingValues(0.dp)
-                            ) {
-                                Text("← Back", color = colors.primary)
-                            }
+                        TextButton(
+                            onClick = {
+                                when {
+                                    state.showNearby -> onHideNearby()
+                                    !state.isRegistered -> onOpenRegister()
+                                    else -> onOpenHistory()
+                                }
+                            },
+                            contentPadding = PaddingValues(0.dp)
+                        ) {
+                            Text("← Back", color = colors.primary)
                         }
                         Text(
                             "Tracking",
@@ -464,6 +478,7 @@ fun MainScreen(
                     Text(stringResource(R.string.logout), color = colors.error)
                 }
             }
+        }
         }
     }
 }
