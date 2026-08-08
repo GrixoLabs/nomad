@@ -12,6 +12,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -21,6 +22,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -182,23 +184,40 @@ fun MainScreen(
             }
 
             SoftPanel {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        text = if (state.contextLoading) "Updating…" else "Live",
-                        style = MaterialTheme.typography.labelLarge,
-                        color = colors.primary,
-                        fontWeight = FontWeight.SemiBold,
-                        modifier = Modifier.weight(1f)
+                Box(modifier = Modifier.fillMaxWidth()) {
+                    Column(
+                        modifier = Modifier
+                            .align(Alignment.TopStart)
+                            .padding(end = 140.dp)
+                    ) {
+                        if (!state.isRegistered) {
+                            TextButton(
+                                onClick = onOpenRegister,
+                                contentPadding = PaddingValues(0.dp)
+                            ) {
+                                Text("← Back", color = colors.primary)
+                            }
+                        }
+                        Text(
+                            "Tracking",
+                            style = MaterialTheme.typography.titleLarge,
+                            color = colors.onSurface,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = if (state.contextLoading) "Updating…" else "Live",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = colors.primary,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                    BrandLogo(
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .height(56.dp)
+                            .widthIn(max = 160.dp)
                     )
-                    BrandLogo()
                 }
-                Spacer(modifier = Modifier.height(10.dp))
-                Text(
-                    "Tracking card",
-                    style = MaterialTheme.typography.titleLarge,
-                    color = colors.onSurface,
-                    fontWeight = FontWeight.Bold
-                )
                 Spacer(modifier = Modifier.height(8.dp))
                 InfoRow(
                     "Coordinates",
@@ -383,7 +402,7 @@ fun MainScreen(
                             containerColor = colors.primary,
                             contentColor = colors.onPrimary
                         )
-                    ) { Text("Register to unlock journal") }
+                    ) { Text("Register") }
                 }
             }
 

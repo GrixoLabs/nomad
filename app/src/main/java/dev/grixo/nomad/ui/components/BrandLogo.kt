@@ -11,13 +11,15 @@ import androidx.compose.ui.unit.dp
 import dev.grixo.nomad.R
 
 @Composable
-fun BrandLogo(modifier: Modifier = Modifier) {
+fun BrandLogo(
+    modifier: Modifier = Modifier
+        .height(40.dp)
+        .widthIn(max = 180.dp)
+) {
     Image(
         painter = painterResource(R.drawable.logo_nomad),
         contentDescription = "Nomad",
-        modifier = modifier
-            .height(40.dp)
-            .widthIn(max = 180.dp),
+        modifier = modifier,
         contentScale = ContentScale.Fit
     )
 }

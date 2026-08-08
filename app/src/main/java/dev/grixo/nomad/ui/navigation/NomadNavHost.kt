@@ -66,15 +66,21 @@ fun NomadNavHost(
     NavHost(navController = navController, startDestination = start) {
         composable(NomadRoutes.REGISTER) {
             val canPop = navController.previousBackStackEntry != null
+            val allowBackToHome = canPop || resolvedStatus == OnboardingStatus.SKIPPED
             RegistrationRoute(
                 onFinished = {
                     navController.navigate(NomadRoutes.HOME) {
                         popUpTo(NomadRoutes.REGISTER) { inclusive = true }
                     }
                 },
-                // Back to home when guest opens register after skip; null on first-launch PENDING.
-                onBack = if (canPop) {
-                    { navController.popBackStack() }
+                onBack = if (allowBackToHome) {
+                    {
+                        if (!navController.popBackStack()) {
+                            navController.navigate(NomadRoutes.HOME) {
+                                popUpTo(NomadRoutes.REGISTER) { inclusive = true }
+                            }
+                        }
+                    }
                 } else {
                     null
                 }

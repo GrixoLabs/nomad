@@ -36,8 +36,19 @@ class RegistrationViewModel @Inject constructor(
         it.copy(age = value.filter { ch -> ch.isDigit() }.take(3), errorMessage = null)
     }
     fun onGenderChange(value: Gender) = _uiState.update { it.copy(gender = value, errorMessage = null) }
+    fun onPasswordChange(value: String) = _uiState.update { it.copy(password = value, errorMessage = null) }
+    fun onConfirmPasswordChange(value: String) =
+        _uiState.update { it.copy(confirmPassword = value, errorMessage = null) }
+    fun onOtpChange(value: String) =
+        _uiState.update { it.copy(otp = value.filter { ch -> ch.isDigit() }.take(8), errorMessage = null) }
 
-    fun submit() {
+    fun backFromOtp() {
+        _uiState.update {
+            it.copy(step = RegistrationStep.PROFILE, otp = "", errorMessage = null, infoMessage = null)
+        }
+    }
+
+    fun submitProfile() {
         val state = _uiState.value
         val email = state.email.trim().takeIf { it.isNotEmpty() }
         val phone = state.phone.trim().takeIf { it.isNotEmpty() }
@@ -47,6 +58,8 @@ class RegistrationViewModel @Inject constructor(
             state.name.isBlank() -> "Name is required"
             email == null && phone == null -> "Add an email or phone number"
             age == null || age !in 13..120 -> "Enter an age between 13 and 120"
+            state.password.length < 8 -> "Password must be at least 8 characters"
+            state.password != state.confirmPassword -> "Passwords do not match"
             else -> null
         }
         if (error != null) {
@@ -55,23 +68,69 @@ class RegistrationViewModel @Inject constructor(
         }
 
         viewModelScope.launch {
-            _uiState.update { it.copy(isSubmitting = true, errorMessage = null) }
-            val result = userRepository.register(
-                UserProfile(
+            _uiState.update { it.copy(isSubmitting = true, errorMessage = null, infoMessage = null) }
+            deviceRepository.initializeDevice()
+            val result = userRepository.startRegistration(
+                profile = UserProfile(
                     name = state.name.trim(),
                     email = email,
                     phone = phone,
                     age = age!!,
                     gender = state.gender
-                )
+                ),
+                password = state.password
             )
+            _uiState.update {
+                if (result.isSuccess) {
+                    val hint = when {
+                        email != null -> "Code sent to $email"
+                        else -> "Code sent to $phone"
+                    }
+                    it.copy(
+                        isSubmitting = false,
+                        step = RegistrationStep.OTP,
+                        otpHint = hint,
+                        infoMessage = hint
+                    )
+                } else {
+                    it.copy(
+                        isSubmitting = false,
+                        errorMessage = result.exceptionOrNull()?.message ?: "Could not register"
+                    )
+                }
+            }
+        }
+    }
+
+    fun verifyOtp() {
+        val code = _uiState.value.otp
+        viewModelScope.launch {
+            _uiState.update { it.copy(isSubmitting = true, errorMessage = null) }
+            val result = userRepository.verifyRegistrationOtp(code)
             _uiState.update {
                 if (result.isSuccess) {
                     it.copy(isSubmitting = false, completed = true)
                 } else {
                     it.copy(
                         isSubmitting = false,
-                        errorMessage = result.exceptionOrNull()?.message ?: "Could not save profile"
+                        errorMessage = result.exceptionOrNull()?.message ?: "Verification failed"
+                    )
+                }
+            }
+        }
+    }
+
+    fun resendOtp() {
+        viewModelScope.launch {
+            _uiState.update { it.copy(isSubmitting = true, errorMessage = null) }
+            val result = userRepository.resendRegistrationOtp()
+            _uiState.update {
+                if (result.isSuccess) {
+                    it.copy(isSubmitting = false, infoMessage = "Code resent")
+                } else {
+                    it.copy(
+                        isSubmitting = false,
+                        errorMessage = result.exceptionOrNull()?.message ?: "Could not resend code"
                     )
                 }
             }

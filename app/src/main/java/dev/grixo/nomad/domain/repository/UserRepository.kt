@@ -8,7 +8,15 @@ interface UserRepository {
     fun observeOnboardingStatus(): Flow<OnboardingStatus>
     fun observeProfile(): Flow<UserProfile?>
     fun observeJournalEnabled(): Flow<Boolean>
-    suspend fun register(profile: UserProfile): Result<Unit>
+
+    /** Creates account on server and sends OTP. Does not unlock journal yet. */
+    suspend fun startRegistration(profile: UserProfile, password: String): Result<Unit>
+
+    /** Verifies OTP then unlocks local registered profile. */
+    suspend fun verifyRegistrationOtp(otp: String): Result<Unit>
+
+    suspend fun resendRegistrationOtp(): Result<Unit>
+
     suspend fun skipRegistration()
     suspend fun logout()
 }

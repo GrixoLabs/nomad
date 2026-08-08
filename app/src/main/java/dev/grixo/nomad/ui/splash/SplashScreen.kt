@@ -4,7 +4,9 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -23,6 +25,7 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import dev.grixo.nomad.R
@@ -46,7 +49,7 @@ fun SplashScreen(onFinished: () -> Unit) {
         onFinished()
     }
 
-    Box(
+    Column(
         modifier = Modifier
             .fillMaxSize()
             .background(
@@ -57,29 +60,34 @@ fun SplashScreen(onFinished: () -> Unit) {
                         colors.surface
                     )
                 )
-            ),
-        contentAlignment = Alignment.Center
+            )
+            .padding(32.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
     ) {
-        androidx.compose.foundation.layout.Column(
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            Image(
-                painter = painterResource(R.drawable.logo_nomad),
-                contentDescription = "Nomad",
-                modifier = Modifier
-                    .alpha(alpha)
-                    .padding(32.dp)
-                    .height(112.dp)
-                    .widthIn(max = 300.dp),
-                contentScale = ContentScale.Fit
-            )
-            Text(
-                text = "NOMAD",
-                style = MaterialTheme.typography.headlineMedium,
-                color = colors.onBackground,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.alpha(alpha)
-            )
-        }
+        Image(
+            painter = painterResource(R.drawable.logo_nomad),
+            contentDescription = "Nomad",
+            modifier = Modifier
+                .alpha(alpha)
+                .height(112.dp)
+                .widthIn(max = 300.dp),
+            contentScale = ContentScale.Fit
+        )
+        Spacer(modifier = Modifier.height(16.dp))
+        Text(
+            text = stringResource(R.string.app_name).uppercase(),
+            style = MaterialTheme.typography.headlineMedium,
+            color = colors.onBackground,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.alpha(alpha)
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+        Text(
+            text = stringResource(R.string.tagline),
+            style = MaterialTheme.typography.bodyLarge,
+            color = colors.onSurfaceVariant,
+            modifier = Modifier.alpha(alpha)
+        )
     }
 }

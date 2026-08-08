@@ -1,5 +1,8 @@
 package dev.grixo.nomad.data.network
 
+import dev.grixo.nomad.data.network.model.AuthMessageResponse
+import dev.grixo.nomad.data.network.model.AuthRegisterRequest
+import dev.grixo.nomad.data.network.model.AuthRegisterResponse
 import dev.grixo.nomad.data.network.model.DeviceRegistrationRequest
 import dev.grixo.nomad.data.network.model.DeviceRegistrationResponse
 import dev.grixo.nomad.data.network.model.HistoryResponse
@@ -8,9 +11,11 @@ import dev.grixo.nomad.data.network.model.JournalEntryResponse
 import dev.grixo.nomad.data.network.model.MapConfigResponse
 import dev.grixo.nomad.data.network.model.NearbyPlacesResponse
 import dev.grixo.nomad.data.network.model.PlaceResolveResponse
+import dev.grixo.nomad.data.network.model.SendEmailOtpRequest
+import dev.grixo.nomad.data.network.model.SendSmsOtpRequest
 import dev.grixo.nomad.data.network.model.SignalRequest
-import dev.grixo.nomad.data.network.model.UserRegistrationRequest
-import dev.grixo.nomad.data.network.model.UserRegistrationResponse
+import dev.grixo.nomad.data.network.model.VerifyEmailOtpRequest
+import dev.grixo.nomad.data.network.model.VerifySmsOtpRequest
 import dev.grixo.nomad.data.network.model.WeatherResponse
 import okhttp3.ResponseBody
 import retrofit2.Response
@@ -27,8 +32,20 @@ interface NomadApi {
     @POST("api/v1/devices/register")
     suspend fun registerDevice(@Body request: DeviceRegistrationRequest): Response<DeviceRegistrationResponse>
 
-    @POST("api/v1/users/register")
-    suspend fun registerUser(@Body request: UserRegistrationRequest): Response<UserRegistrationResponse>
+    @POST("api/v1/auth/register")
+    suspend fun authRegister(@Body request: AuthRegisterRequest): Response<AuthRegisterResponse>
+
+    @POST("api/v1/auth/send-email-otp")
+    suspend fun sendEmailOtp(@Body request: SendEmailOtpRequest): Response<AuthMessageResponse>
+
+    @POST("api/v1/auth/verify-email-otp")
+    suspend fun verifyEmailOtp(@Body request: VerifyEmailOtpRequest): Response<AuthMessageResponse>
+
+    @POST("api/v1/auth/send-sms-otp")
+    suspend fun sendSmsOtp(@Body request: SendSmsOtpRequest): Response<AuthMessageResponse>
+
+    @POST("api/v1/auth/verify-sms-otp")
+    suspend fun verifySmsOtp(@Body request: VerifySmsOtpRequest): Response<AuthMessageResponse>
 
     @POST("api/v1/signals")
     suspend fun sendSignal(@Body request: SignalRequest): Response<ResponseBody>

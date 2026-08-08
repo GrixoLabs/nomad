@@ -87,20 +87,13 @@ class HistoryMapViewModel @Inject constructor(
             val history = journalRepository.loadHistory(_uiState.value.days)
             if (mapConfig.isFailure) {
                 _uiState.update {
-                    it.copy(
-                        loading = false,
-                        errorMessage = mapConfig.exceptionOrNull()?.message
-                            ?: "Map config unavailable (set STADIA_API on server)"
-                    )
+                    it.copy(loading = false, errorMessage = "Map unavailable")
                 }
                 return@launch
             }
             if (history.isFailure) {
                 _uiState.update {
-                    it.copy(
-                        loading = false,
-                        errorMessage = history.exceptionOrNull()?.message ?: "History failed"
-                    )
+                    it.copy(loading = false, errorMessage = "History unavailable")
                 }
                 return@launch
             }
