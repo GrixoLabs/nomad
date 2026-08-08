@@ -40,6 +40,14 @@ class Settings(BaseSettings):
     twilio_client_key: str | None = None  # Auth Token
     twilio_from_number: str | None = None  # E.164 sender, e.g. +1...
 
+    # External place / weather / tourism APIs
+    nominatim_url: str = "https://nominatim.openstreetmap.org/reverse"
+    nominatim_user_agent: str = "NomadApp/1.0 (contact: ops@grixo.dev)"
+    open_meteo_url: str = "https://api.open-meteo.com/v1/forecast"
+    overpass_url: str = "https://overpass-api.de/api/interpreter"
+    # Android client waits ~25s; keep server outbound slightly under that.
+    external_http_timeout_seconds: float = 22.0
+
     model_config = SettingsConfigDict(
         env_file=".env",
         case_sensitive=False,
