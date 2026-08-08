@@ -1,0 +1,22 @@
+# Tasks - Nomad Android Phase 1
+
+- `[/]` Project Setup & Dependencies
+    - `[ ]` Update `libs.versions.toml`
+    - `[ ]` Update root `build.gradle.kts`
+    - `[ ]` Update app `build.gradle.kts`
+    - `[ ]` Update `AndroidManifest.xml` (Permissions)
+- `[ ]` Folder Structure
+- `[ ]` Base Architecture & Hilt Setup
+    - `[ ]` `NomadApp` class
+    - `[ ]` Hilt Modules (Network, Database, Repository)
+- `[ ]` Data Layer Implementation
+    - `[ ]` DataStore PreferenceManager
+    - `[ ]` Room Database & Signal DAO
+    - `[ ]` Retrofit API & DTOs
+    - `[ ]` Repositories
+- `[ ]` Tracking Service (Foreground Service)
+- `[ ]` Background Sync (WorkManager)
+- `[ ]` UI Layer (Jetpack Compose)
+    - `[ ]` MainViewModel
+    - `[ ]` MainScreen
+- `[ ]` Verification & Testing
