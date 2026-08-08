@@ -2,14 +2,8 @@ from collections.abc import Generator
 
 from sqlalchemy.orm import Session
 
-from app.database.session import SessionLocal
+from app.database.session import get_db as _get_db
 
 
 def get_db() -> Generator[Session, None, None]:
-
-    db = SessionLocal()
-
-    try:
-        yield db
-    finally:
-        db.close()
+    yield from _get_db()

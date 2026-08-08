@@ -8,57 +8,31 @@ from app.schemas.device import DeviceRegisterRequest
 
 
 class DeviceService:
-
-    def __init__(self):
-
+    def __init__(self) -> None:
         self.repository = DeviceRepository()
 
-    def register_device(
-        self,
-        db: Session,
-        request: DeviceRegisterRequest,
-    ) -> Device:
-
-        device = self.repository.get_by_uuid(
-            db,
-            request.device_uuid,
-        )
+    def register_device(self, db: Session, request: DeviceRegisterRequest) -> Device:
+        device = self.repository.get_by_uuid(db, request.device_uuid)
+        now = datetime.now(timezone.utc)
 
         if device:
-
             device.device_name = request.device_name
             device.manufacturer = request.manufacturer
             device.model = request.model
             device.android_version = request.android_version
             device.app_version = request.app_version
-
-            return self.repository.update(
-                db,
-                device,
-            )
+            device.is_active = True
+            return self.repository.update(db, device)
 
         device = Device(
-
             device_uuid=request.device_uuid,
-
             device_name=request.device_name,
-
             manufacturer=request.manufacturer,
-
             model=request.model,
-
             android_version=request.android_version,
-
             app_version=request.app_version,
-
-            first_seen_utc=datetime.now(timezone.utc),
-
-            last_seen_utc=datetime.now(timezone.utc),
-
+            first_seen_utc=now,
+            last_seen_utc=now,
             is_active=True,
         )
-
-        return self.repository.create(
-            db,
-            device,
-        )
+        return self.repository.create(db, device)

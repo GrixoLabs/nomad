@@ -1,19 +1,11 @@
-from fastapi import FastAPI
+"""
+Uvicorn entrypoint.
 
-app = FastAPI(
-    title="Nomad API",
-    version="0.1.0"
-)
+Run either:
+  uvicorn main:app --host 0.0.0.0 --port 8001 --reload
+  uvicorn app.main:app --host 0.0.0.0 --port 8001 --reload
+"""
 
-@app.get("/")
-def root():
-    return {
-        "status": "ok",
-        "service": "Nomad API"
-    }
+from app.main import app
 
-@app.get("/health")
-def health():
-    return {
-        "healthy": True
-    }
+__all__ = ["app"]
