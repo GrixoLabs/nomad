@@ -10,6 +10,7 @@ Apply in order against your Postgres (schema `nomad`):
 psql "host=HOST port=5432 dbname=DB user=USER password=PASS sslmode=require" -f sql/001_devices_and_signals.sql
 psql "host=HOST port=5432 dbname=DB user=USER password=PASS sslmode=require" -f sql/003_auth_users.sql
 psql "host=HOST port=5432 dbname=DB user=USER password=PASS sslmode=require" -f sql/004_places_weather_tourism.sql
+psql "host=HOST port=5432 dbname=DB user=USER password=PASS sslmode=require" -f sql/005_journal_history_nights.sql
 ```
 
 `003_auth_users.sql` replaces any early `nomad.users` table with UUID auth users + OTP + refresh tokens.
@@ -65,6 +66,20 @@ Account becomes `active` (and `journal_enabled=true`) after **at least one** of 
 | GET | `/places/nearby?lat=&lon=&limit=10` | DB → Overpass tourism → store permanently; ranked by distance |
 
 Flow for each: check local DB for grid key → else call 3rd party → persist → return.
+
+### Journal / history / map
+| Method | Path | Purpose |
+|--------|------|---------|
+| GET | `/map/config` | Stadia tile URL (uses `STADIA_API` from `.env`) |
+| POST | `/journal` | Create journal entry (≤500 chars); **AES-GCM masked at rest** |
+| GET | `/history?device_uuid=&days=1..14` | Track segments + journal pins + night stays |
+
+- Track: navy `idle` segments, crimson `travel` segments
+- Night stay: idle ≥6h within 22:00–08:00 local → concentric circle + weather
+- Developer decrypt: `python scripts/decrypt_journal.py --entry-id N`
+- Recompute nights: `python scripts/compute_night_stays.py --days 14`
+
+Nearby places default to **popularity** (top 10 for the city grid); pass `sort=distance` to reorder those 10.
 
 ### Weather flush job
 ```bash

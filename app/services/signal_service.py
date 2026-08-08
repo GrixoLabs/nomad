@@ -36,8 +36,9 @@ class SignalService:
             device_id=device.device_id,
             gps_timestamp_utc=gps_ts,
             received_utc=datetime.now(timezone.utc),
-            latitude=request.latitude,
-            longitude=request.longitude,
+            # Persist at least 5 decimal places (~1 m); UI may coarsen for privacy.
+            latitude=round(float(request.latitude), 5),
+            longitude=round(float(request.longitude), 5),
             accuracy_m=request.accuracy_m,
             altitude_m=request.altitude_m,
             speed_mps=request.speed_mps,

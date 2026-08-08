@@ -48,6 +48,13 @@ class Settings(BaseSettings):
     # Android client waits ~25s; keep server outbound slightly under that.
     external_http_timeout_seconds: float = 22.0
 
+    # Journal at-rest masking (AES-GCM). Prefer a dedicated key in production.
+    journal_mask_key: str | None = None
+
+    # Stadia Maps — set STADIA_API in .env (served to Android via /map/config)
+    stadia_api: str | None = None
+    stadia_style: str = "alidade_smooth"
+
     model_config = SettingsConfigDict(
         env_file=".env",
         case_sensitive=False,

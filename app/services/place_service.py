@@ -52,15 +52,24 @@ class PlaceService:
     def __init__(self, settings: Settings | None = None) -> None:
         self.settings = settings or get_settings()
 
+    @staticmethod
+    def _area_label(locality: str | None, city: str | None) -> str | None:
+        if locality and city and locality.lower() != city.lower():
+            return f"{locality} in {city}"
+        return locality or city
+
     def resolve_place(self, db: Session, lat: float, lon: float) -> PlaceResolveResponse:
         key = grid_key(lat, lon)
         existing = db.get(PlaceCache, key)
         if existing:
+            locality = getattr(existing, "locality", None)
             return PlaceResolveResponse(
                 display_name=existing.display_name,
+                locality=locality,
                 city=existing.city,
                 region=existing.region,
                 country=existing.country,
+                area_label=self._area_label(locality, existing.city),
                 grid_key=key,
                 cached=True,
             )
@@ -73,11 +82,23 @@ class PlaceService:
             or address.get("town")
             or address.get("village")
             or address.get("municipality")
-            or address.get("suburb")
         )
+        locality = (
+            address.get("suburb")
+            or address.get("neighbourhood")
+            or address.get("neighborhood")
+            or address.get("quarter")
+            or address.get("city_district")
+            or address.get("residential")
+            or address.get("hamlet")
+        )
+        # Avoid duplicating city into locality
+        if locality and city and locality.lower() == city.lower():
+            locality = None
         region = address.get("state") or address.get("region") or address.get("county")
         country = address.get("country")
-        display = payload.get("display_name") or ", ".join(
+        area = self._area_label(locality, city)
+        display = area or payload.get("display_name") or ", ".join(
             x for x in (city, region, country) if x
         ) or f"Near {lat_c:.2f}, {lon_c:.2f}"
 
@@ -86,6 +107,7 @@ class PlaceService:
             lat_center=lat_c,
             lon_center=lon_c,
             display_name=display,
+            locality=locality,
             city=city,
             region=region,
             country=country,
@@ -96,9 +118,11 @@ class PlaceService:
         db.commit()
         return PlaceResolveResponse(
             display_name=display,
+            locality=locality,
             city=city,
             region=region,
             country=country,
+            area_label=area,
             grid_key=key,
             cached=False,
         )
@@ -153,9 +177,17 @@ class PlaceService:
         )
 
     def nearby_places(
-        self, db: Session, lat: float, lon: float, limit: int = 10
+        self,
+        db: Session,
+        lat: float,
+        lon: float,
+        limit: int = 10,
+        sort: str = "popularity",
     ) -> NearbyPlacesResponse:
+        """Return top places for the city grid by popularity; client may re-sort by distance."""
         key = grid_key(lat, lon)
+        limit = max(1, min(limit, 10))
+        sort = sort if sort in {"popularity", "distance"} else "popularity"
         cached_rows = list(
             db.scalars(select(TouristSpot).where(TouristSpot.grid_key == key)).all()
         )
@@ -175,6 +207,7 @@ class PlaceService:
                         longitude=item["longitude"],
                         source=item["source"],
                         source_id=item["source_id"],
+                        popularity_score=item.get("popularity_score", 0),
                         raw_json=item.get("raw"),
                         created_at=now,
                     )
@@ -186,20 +219,25 @@ class PlaceService:
                 db.scalars(select(TouristSpot).where(TouristSpot.grid_key == key)).all()
             )
 
-        ranked: list[NearbyPlace] = []
+        scored: list[NearbyPlace] = []
         for row in cached_rows:
             dist = haversine_m(lat, lon, row.latitude, row.longitude)
-            ranked.append(
+            scored.append(
                 NearbyPlace(
                     name=row.name,
                     category=row.category,
                     latitude=row.latitude,
                     longitude=row.longitude,
                     distance_m=round(dist, 1),
+                    popularity_score=getattr(row, "popularity_score", 0) or 0,
                 )
             )
-        ranked.sort(key=lambda p: p.distance_m if p.distance_m is not None else 1e12)
-        return NearbyPlacesResponse(places=ranked[: max(1, min(limit, 25))], cached=from_cache)
+        # Always pick the top-N by popularity for the city, then optionally order by distance.
+        scored.sort(key=lambda p: (-p.popularity_score, p.distance_m or 1e12))
+        top = scored[:limit]
+        if sort == "distance":
+            top.sort(key=lambda p: p.distance_m if p.distance_m is not None else 1e12)
+        return NearbyPlacesResponse(places=top, cached=from_cache, sort=sort)
 
     def _client(self) -> httpx.Client:
         timeout = httpx.Timeout(
@@ -218,7 +256,8 @@ class PlaceService:
             "lon": lon,
             "format": "json",
             "addressdetails": 1,
-            "zoom": 10,
+            # Higher zoom → suburb/neighbourhood for locality labels
+            "zoom": 14,
         }
         with self._client() as client:
             resp = client.get(self.settings.nominatim_url, params=params, headers=headers)
@@ -294,7 +333,28 @@ class PlaceService:
                     "longitude": elon,
                     "source": "overpass",
                     "source_id": source_id[:80],
+                    "popularity_score": self._popularity_score(tags, category),
                     "raw": {"id": el.get("id"), "type": el.get("type"), "tags": tags},
                 }
             )
+        results.sort(key=lambda x: -x["popularity_score"])
         return results
+
+    @staticmethod
+    def _popularity_score(tags: dict[str, Any], category: str) -> int:
+        score = 1
+        if tags.get("wikipedia") or tags.get("wikidata"):
+            score += 40
+        if tags.get("tourism") in {"attraction", "museum", "theme_park", "zoo", "viewpoint"}:
+            score += 25
+        if tags.get("historic"):
+            score += 15
+        if tags.get("amenity") in {"theatre", "cinema"}:
+            score += 10
+        if tags.get("amenity") == "place_of_worship":
+            score += 5
+        # Named landmarks with multiple languages tend to be notable
+        score += min(10, sum(1 for k in tags if str(k).startswith("name:")))
+        if category:
+            score += 1
+        return score

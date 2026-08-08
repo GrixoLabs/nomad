@@ -37,10 +37,11 @@ def get_weather(
 def nearby_places(
     lat: float = Query(..., ge=-90, le=90),
     lon: float = Query(..., ge=-180, le=180),
-    limit: int = Query(10, ge=1, le=25),
+    limit: int = Query(10, ge=1, le=10),
+    sort: str = Query("popularity", pattern="^(popularity|distance)$"),
     db: Session = Depends(get_db),
 ):
     try:
-        return service.nearby_places(db, lat, lon, limit=limit)
+        return service.nearby_places(db, lat, lon, limit=limit, sort=sort)
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=504, detail=f"Nearby places failed: {exc}") from exc

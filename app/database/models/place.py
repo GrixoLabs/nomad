@@ -7,6 +7,7 @@ from sqlalchemy import (
     Double,
     Identity,
     Index,
+    Integer,
     SmallInteger,
     String,
     Text,
@@ -30,6 +31,7 @@ class PlaceCache(Base):
     lat_center: Mapped[float] = mapped_column(Double, nullable=False)
     lon_center: Mapped[float] = mapped_column(Double, nullable=False)
     display_name: Mapped[str] = mapped_column(Text, nullable=False)
+    locality: Mapped[str | None] = mapped_column(String(160))
     city: Mapped[str | None] = mapped_column(String(120))
     region: Mapped[str | None] = mapped_column(String(120))
     country: Mapped[str | None] = mapped_column(String(120))
@@ -83,6 +85,7 @@ class TouristSpot(Base):
     longitude: Mapped[float] = mapped_column(Double, nullable=False)
     source: Mapped[str] = mapped_column(String(40), nullable=False, default="overpass")
     source_id: Mapped[str | None] = mapped_column(String(80))
+    popularity_score: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     raw_json: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
