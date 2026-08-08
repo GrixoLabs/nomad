@@ -42,18 +42,24 @@ class HistoryService:
 
     def map_config(self) -> MapConfigResponse:
         settings = get_settings()
-        key = settings.stadia_api
-        if not key:
-            raise HTTPException(
-                status_code=503,
-                detail="STADIA_API is not configured on the server",
+        key = (settings.stadia_api or "").strip()
+        if key:
+            style = settings.stadia_style or "alidade_smooth"
+            template = (
+                f"https://tiles.stadiamaps.com/tiles/{style}/{{z}}/{{x}}/{{y}}@2x.png"
+                f"?api_key={key}"
             )
-        style = settings.stadia_style or "alidade_smooth"
-        template = (
-            f"https://tiles.stadiamaps.com/tiles/{style}/{{z}}/{{x}}/{{y}}@2x.png"
-            f"?api_key={key}"
+            return MapConfigResponse(
+                tile_url_template=template,
+                style=style,
+                attribution="© Stadia Maps © OpenMapTiles © OpenStreetMap",
+            )
+        # Fallback so history map still loads when STADIA_API is unset.
+        return MapConfigResponse(
+            tile_url_template="https://tile.openstreetmap.org/{z}/{x}/{y}.png",
+            style="osm",
+            attribution="© OpenStreetMap contributors",
         )
-        return MapConfigResponse(tile_url_template=template, style=style)
 
     def create_journal(
         self, db: Session, request: JournalCreateRequest
