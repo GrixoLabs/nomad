@@ -1,10 +1,19 @@
 package dev.grixo.nomad.domain.repository
 
-/**
- * Phase 2 placeholder. Journal entries (place notes, max 500 chars)
- * will be wired with maps. Writing is blocked when registration was skipped.
- */
+import dev.grixo.nomad.data.network.model.HistoryResponse
+import dev.grixo.nomad.data.network.model.JournalEntryResponse
+import dev.grixo.nomad.data.network.model.MapConfigResponse
+
 interface JournalRepository {
     fun isJournalUnlocked(): Boolean
     suspend fun canWriteJournal(): Boolean
+    suspend fun createEntry(
+        body: String,
+        latitude: Double,
+        longitude: Double,
+        placeLabel: String?
+    ): Result<JournalEntryResponse>
+
+    suspend fun loadHistory(days: Int): Result<HistoryResponse>
+    suspend fun loadMapConfig(): Result<MapConfigResponse>
 }

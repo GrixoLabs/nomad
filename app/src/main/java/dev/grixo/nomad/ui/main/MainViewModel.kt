@@ -22,6 +22,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
+import java.util.Locale
 import javax.inject.Inject
 
 @HiltViewModel
@@ -71,6 +72,7 @@ class MainViewModel @Inject constructor(
                         latitude = event.latitude,
                         longitude = event.longitude,
                         accuracy = event.accuracyM,
+                        altitudeM = event.altitudeM,
                         batteryPercent = event.batteryPercent,
                         networkType = event.networkType,
                         lastUploadTime = if (event.uploaded) {
@@ -105,6 +107,14 @@ class MainViewModel @Inject constructor(
         _uiState.update { it.copy(permissionDenied = denied) }
     }
 
+    fun setNearbySort(sort: String) {
+        val normalized = if (sort == "distance") "distance" else "popularity"
+        _uiState.update { it.copy(nearbySort = normalized) }
+        if (_uiState.value.showNearby) {
+            loadNearbyPlaces()
+        }
+    }
+
     fun loadNearbyPlaces() {
         val lat = _uiState.value.latitude
         val lon = _uiState.value.longitude
@@ -112,20 +122,26 @@ class MainViewModel @Inject constructor(
             _uiState.update { it.copy(errorMessage = "Location not available yet") }
             return
         }
+        val sort = _uiState.value.nearbySort
         viewModelScope.launch {
             _uiState.update { it.copy(nearbyLoading = true, showNearby = true, errorMessage = null) }
             try {
-                val response = api.nearbyPlaces(lat, lon, 10)
+                val response = api.nearbyPlaces(lat, lon, 10, sort)
                 if (response.isSuccessful && response.body() != null) {
                     val places = response.body()!!.places.map {
                         NearbyPlaceUi(
                             name = it.name,
                             category = it.category,
-                            distanceKm = it.distance_m?.div(1000.0)
+                            distanceKm = it.distance_m?.div(1000.0),
+                            popularityScore = it.popularity_score
                         )
                     }
                     _uiState.update {
-                        it.copy(nearbyPlaces = places, nearbyLoading = false)
+                        it.copy(
+                            nearbyPlaces = places,
+                            nearbyLoading = false,
+                            nearbySort = response.body()!!.sort
+                        )
                     }
                 } else {
                     _uiState.update {
@@ -150,6 +166,17 @@ class MainViewModel @Inject constructor(
         _uiState.update { it.copy(showNearby = false) }
     }
 
+    fun logout() {
+        viewModelScope.launch {
+            userRepository.logout()
+            _uiState.update { it.copy(loggedOut = true, isTracking = false) }
+        }
+    }
+
+    fun consumeLogout() {
+        _uiState.update { it.copy(loggedOut = false) }
+    }
+
     private fun refreshPlaceContext(lat: Double, lon: Double) {
         viewModelScope.launch {
             _uiState.update { it.copy(contextLoading = true) }
@@ -157,10 +184,11 @@ class MainViewModel @Inject constructor(
                 val place = api.resolvePlace(lat, lon)
                 if (place.isSuccessful && place.body() != null) {
                     val body = place.body()!!
-                    val label = listOfNotNull(body.city, body.region, body.country)
-                        .distinct()
-                        .joinToString(", ")
-                        .ifBlank { body.display_name }
+                    val label = body.area_label
+                        ?: listOfNotNull(body.locality, body.city, body.region, body.country)
+                            .distinct()
+                            .joinToString(", ")
+                            .ifBlank { body.display_name }
                     _uiState.update { it.copy(placeLabel = label) }
                 }
             } catch (_: Exception) {
@@ -200,5 +228,10 @@ class MainViewModel @Inject constructor(
             syncRequest
         )
         checkBackendHealth()
+    }
+
+    companion object {
+        fun formatCoord(value: Double): String =
+            String.format(Locale.US, "%.5f", value)
     }
 }

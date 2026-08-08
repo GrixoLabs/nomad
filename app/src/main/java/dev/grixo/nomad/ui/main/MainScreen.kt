@@ -26,12 +26,15 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -49,9 +52,22 @@ import dev.grixo.nomad.ui.components.BrandLogo
 import java.util.Locale
 
 @Composable
-fun MainRoute(viewModel: MainViewModel = hiltViewModel()) {
+fun MainRoute(
+    onOpenJournal: () -> Unit,
+    onOpenHistory: () -> Unit,
+    onLoggedOut: () -> Unit,
+    viewModel: MainViewModel = hiltViewModel()
+) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val context = LocalContext.current
+
+    LaunchedEffect(uiState.loggedOut) {
+        if (uiState.loggedOut) {
+            context.stopService(Intent(context, TrackingService::class.java))
+            viewModel.consumeLogout()
+            onLoggedOut()
+        }
+    }
 
     val foregroundPermissions = buildList {
         add(Manifest.permission.ACCESS_FINE_LOCATION)
@@ -92,7 +108,11 @@ fun MainRoute(viewModel: MainViewModel = hiltViewModel()) {
         },
         onSync = viewModel::triggerManualSync,
         onNearby = viewModel::loadNearbyPlaces,
-        onHideNearby = viewModel::hideNearby
+        onHideNearby = viewModel::hideNearby,
+        onNearbySort = viewModel::setNearbySort,
+        onOpenJournal = onOpenJournal,
+        onOpenHistory = onOpenHistory,
+        onLogout = viewModel::logout
     )
 }
 
@@ -103,7 +123,11 @@ fun MainScreen(
     onStopTracking: () -> Unit,
     onSync: () -> Unit,
     onNearby: () -> Unit,
-    onHideNearby: () -> Unit
+    onHideNearby: () -> Unit,
+    onNearbySort: (String) -> Unit,
+    onOpenJournal: () -> Unit,
+    onOpenHistory: () -> Unit,
+    onLogout: () -> Unit
 ) {
     val colors = MaterialTheme.colorScheme
 
@@ -134,10 +158,17 @@ fun MainScreen(
                     color = colors.onBackground
                 )
                 Text(
-                    text = state.userName?.let { "Welcome, $it" } ?: "Travel quietly. Stay findable.",
+                    text = stringResource(R.string.tagline),
                     style = MaterialTheme.typography.bodyLarge,
                     color = colors.onSurfaceVariant
                 )
+                if (state.userName != null) {
+                    Text(
+                        text = "Welcome, ${state.userName}",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = colors.onSurface
+                    )
+                }
             }
 
             SoftPanel {
@@ -149,14 +180,14 @@ fun MainScreen(
 
             SoftPanel {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    BrandLogo()
-                    Spacer(Modifier.weight(1f))
                     Text(
                         text = if (state.contextLoading) "Updating…" else "Live",
                         style = MaterialTheme.typography.labelLarge,
                         color = colors.primary,
-                        fontWeight = FontWeight.SemiBold
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.weight(1f)
                     )
+                    BrandLogo()
                 }
                 Spacer(Modifier.height(10.dp))
                 Text(
@@ -167,24 +198,26 @@ fun MainScreen(
                 )
                 Spacer(Modifier.height(8.dp))
                 InfoRow(
-                    "Coordinates (~20 km)",
+                    "Coordinates",
                     when {
                         state.latitude != null && state.longitude != null ->
-                            "≈ ${"%.2f".format(Locale.US, state.latitude)}, ${"%.2f".format(Locale.US, state.longitude)}"
+                            "${MainViewModel.formatCoord(state.latitude)}, ${MainViewModel.formatCoord(state.longitude)}"
                         else -> "Acquiring GPS…"
                     }
                 )
-                InfoRow(
-                    "Area",
-                    state.placeLabel.ifBlank { "—" }
-                )
+                InfoRow("Area", state.placeLabel.ifBlank { "—" })
                 InfoRow(
                     "Weather",
                     buildString {
                         append(state.weatherSummary.ifBlank { "—" })
-                        state.temperatureC?.let { append(" · ${"%.0f".format(Locale.US, it)}°C") }
+                        state.temperatureC?.let {
+                            append(" · ${"%.0f".format(Locale.US, it)}°C")
+                        }
                     }
                 )
+                if (state.altitudeM != null) {
+                    InfoRow("Altitude", "${"%.0f".format(Locale.US, state.altitudeM)} m")
+                }
                 HorizontalDivider(
                     modifier = Modifier.padding(vertical = 8.dp),
                     color = colors.outline.copy(alpha = 0.45f)
@@ -219,7 +252,7 @@ fun MainScreen(
                     )
                 ) {
                     Text(
-                        if (state.nearbyLoading) "Finding places…" else "Top 10 places nearby",
+                        if (state.nearbyLoading) "Finding places…" else "Top 10 places to visit",
                         fontWeight = FontWeight.SemiBold
                     )
                 }
@@ -229,7 +262,7 @@ fun MainScreen(
                 SoftPanel {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
-                            "Nearby places",
+                            "Places to visit",
                             style = MaterialTheme.typography.titleLarge,
                             color = colors.onSurface,
                             fontWeight = FontWeight.SemiBold,
@@ -238,6 +271,26 @@ fun MainScreen(
                         TextButton(onClick = onHideNearby) {
                             Text("Hide", color = colors.primary)
                         }
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        FilterChip(
+                            selected = state.nearbySort == "popularity",
+                            onClick = { onNearbySort("popularity") },
+                            label = { Text("Popular") },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = colors.primaryContainer,
+                                selectedLabelColor = colors.onPrimaryContainer
+                            )
+                        )
+                        FilterChip(
+                            selected = state.nearbySort == "distance",
+                            onClick = { onNearbySort("distance") },
+                            label = { Text("Distance") },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = colors.primaryContainer,
+                                selectedLabelColor = colors.onPrimaryContainer
+                            )
+                        )
                     }
                     if (state.nearbyPlaces.isEmpty() && !state.nearbyLoading) {
                         Text(
@@ -263,7 +316,9 @@ fun MainScreen(
                                     Text(
                                         listOfNotNull(
                                             place.category,
-                                            place.distanceKm?.let { "%.1f km".format(Locale.US, it) }
+                                            place.distanceKm?.let {
+                                                "%.1f km".format(Locale.US, it)
+                                            }
                                         ).joinToString(" · "),
                                         color = colors.onSurfaceVariant,
                                         style = MaterialTheme.typography.bodySmall
@@ -283,20 +338,39 @@ fun MainScreen(
 
             SoftPanel {
                 Text(
-                    text = stringResource(R.string.journal_coming_title),
+                    text = stringResource(R.string.journal_title),
                     style = MaterialTheme.typography.titleLarge,
                     color = colors.onSurface
                 )
                 Spacer(Modifier.height(6.dp))
                 Text(
                     text = if (state.journalEnabled) {
-                        stringResource(R.string.journal_coming_body)
+                        stringResource(R.string.journal_hint)
                     } else {
                         stringResource(R.string.journal_locked_body)
                     },
                     style = MaterialTheme.typography.bodyMedium,
                     color = colors.onSurfaceVariant
                 )
+                Spacer(Modifier.height(10.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(
+                        onClick = onOpenJournal,
+                        enabled = state.journalEnabled,
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(14.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = colors.secondary,
+                            contentColor = colors.onSecondary
+                        )
+                    ) { Text("Write") }
+                    OutlinedButton(
+                        onClick = onOpenHistory,
+                        enabled = state.isRegistered,
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(14.dp)
+                    ) { Text("History map") }
+                }
             }
 
             if (state.permissionDenied) {
@@ -306,8 +380,6 @@ fun MainScreen(
                     style = MaterialTheme.typography.bodyMedium
                 )
             }
-
-            Spacer(Modifier.height(8.dp))
 
             AnimatedContent(
                 targetState = state.isTracking,
@@ -325,9 +397,7 @@ fun MainScreen(
                             containerColor = colors.primary,
                             contentColor = colors.onPrimary
                         )
-                    ) {
-                        Text("Start tracking")
-                    }
+                    ) { Text("Start tracking") }
                 } else {
                     Button(
                         onClick = onStopTracking,
@@ -339,9 +409,7 @@ fun MainScreen(
                             containerColor = colors.error,
                             contentColor = colors.onError
                         )
-                    ) {
-                        Text("Stop tracking")
-                    }
+                    ) { Text("Stop tracking") }
                 }
             }
 
@@ -354,6 +422,15 @@ fun MainScreen(
             ) {
                 Text("Sync now", color = colors.primary)
             }
+
+            if (state.isRegistered) {
+                TextButton(
+                    onClick = onLogout,
+                    modifier = Modifier.align(Alignment.CenterHorizontally)
+                ) {
+                    Text(stringResource(R.string.logout), color = colors.error)
+                }
+            }
         }
     }
 }
@@ -364,10 +441,7 @@ private fun SoftPanel(content: @Composable () -> Unit) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .background(
-                color = colors.surface,
-                shape = RoundedCornerShape(20.dp)
-            )
+            .background(color = colors.surface, shape = RoundedCornerShape(20.dp))
             .padding(18.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp),
         content = { content() }

@@ -5,9 +5,11 @@ import kotlinx.serialization.Serializable
 @Serializable
 data class PlaceResolveResponse(
     val display_name: String,
+    val locality: String? = null,
     val city: String? = null,
     val region: String? = null,
     val country: String? = null,
+    val area_label: String? = null,
     val grid_key: String,
     val cached: Boolean = false
 )
@@ -29,11 +31,13 @@ data class NearbyPlace(
     val category: String? = null,
     val latitude: Double,
     val longitude: Double,
-    val distance_m: Double? = null
+    val distance_m: Double? = null,
+    val popularity_score: Int = 0
 )
 
 @Serializable
 data class NearbyPlacesResponse(
     val places: List<NearbyPlace> = emptyList(),
-    val cached: Boolean = false
+    val cached: Boolean = false,
+    val sort: String = "popularity"
 )

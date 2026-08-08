@@ -2,6 +2,10 @@ package dev.grixo.nomad.data.network
 
 import dev.grixo.nomad.data.network.model.DeviceRegistrationRequest
 import dev.grixo.nomad.data.network.model.DeviceRegistrationResponse
+import dev.grixo.nomad.data.network.model.HistoryResponse
+import dev.grixo.nomad.data.network.model.JournalCreateRequest
+import dev.grixo.nomad.data.network.model.JournalEntryResponse
+import dev.grixo.nomad.data.network.model.MapConfigResponse
 import dev.grixo.nomad.data.network.model.NearbyPlacesResponse
 import dev.grixo.nomad.data.network.model.PlaceResolveResponse
 import dev.grixo.nomad.data.network.model.SignalRequest
@@ -45,8 +49,21 @@ interface NomadApi {
     suspend fun nearbyPlaces(
         @Query("lat") lat: Double,
         @Query("lon") lon: Double,
-        @Query("limit") limit: Int = 10
+        @Query("limit") limit: Int = 10,
+        @Query("sort") sort: String = "popularity"
     ): Response<NearbyPlacesResponse>
+
+    @GET("api/v1/map/config")
+    suspend fun mapConfig(): Response<MapConfigResponse>
+
+    @POST("api/v1/journal")
+    suspend fun createJournal(@Body request: JournalCreateRequest): Response<JournalEntryResponse>
+
+    @GET("api/v1/history")
+    suspend fun getHistory(
+        @Query("device_uuid") deviceUuid: String,
+        @Query("days") days: Int
+    ): Response<HistoryResponse>
 
     companion object {
         // Production edge. If this 502s, nomad.service is up but reverse-proxy isn't routing.

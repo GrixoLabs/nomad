@@ -88,4 +88,17 @@ class PreferenceManager @Inject constructor(
             prefs[journalEnabledKey] = false
         }
     }
+
+    /** Clears profile / journal unlock; keeps device identity for signal continuity. */
+    suspend fun logout() {
+        context.dataStore.edit { prefs ->
+            prefs[onboardingStatusKey] = OnboardingStatus.PENDING.name
+            prefs[journalEnabledKey] = false
+            prefs.remove(userNameKey)
+            prefs.remove(userEmailKey)
+            prefs.remove(userPhoneKey)
+            prefs.remove(userAgeKey)
+            prefs.remove(userGenderKey)
+        }
+    }
 }

@@ -11,6 +11,7 @@ data class LiveLocationEvent(
     val latitude: Double,
     val longitude: Double,
     val accuracyM: Float,
+    val altitudeM: Double?,
     val batteryPercent: Int?,
     val networkType: String,
     val uploaded: Boolean
@@ -38,6 +39,7 @@ class LocationBus @Inject constructor() {
         latitude = location.latitude,
         longitude = location.longitude,
         accuracyM = location.accuracy,
+        altitudeM = if (location.hasAltitude()) location.altitude else null,
         batteryPercent = batteryPercent,
         networkType = networkType,
         uploaded = uploaded

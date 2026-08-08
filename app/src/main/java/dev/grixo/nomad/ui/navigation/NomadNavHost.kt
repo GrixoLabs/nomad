@@ -1,5 +1,6 @@
 package dev.grixo.nomad.ui.navigation
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -18,14 +19,17 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import dev.grixo.nomad.domain.model.OnboardingStatus
+import dev.grixo.nomad.ui.history.HistoryMapRoute
+import dev.grixo.nomad.ui.journal.JournalRoute
 import dev.grixo.nomad.ui.main.MainRoute
 import dev.grixo.nomad.ui.registration.RegistrationRoute
 import dev.grixo.nomad.ui.splash.SplashScreen
 
 object NomadRoutes {
-    const val SPLASH = "splash"
     const val REGISTER = "register"
     const val HOME = "home"
+    const val JOURNAL = "journal"
+    const val HISTORY = "history"
 }
 
 @Composable
@@ -62,6 +66,8 @@ fun NomadNavHost(
 
     NavHost(navController = navController, startDestination = start) {
         composable(NomadRoutes.REGISTER) {
+            // No system back during registration
+            BackHandler(enabled = true) { /* swallow */ }
             RegistrationRoute(
                 onFinished = {
                     navController.navigate(NomadRoutes.HOME) {
@@ -71,7 +77,21 @@ fun NomadNavHost(
             )
         }
         composable(NomadRoutes.HOME) {
-            MainRoute()
+            MainRoute(
+                onOpenJournal = { navController.navigate(NomadRoutes.JOURNAL) },
+                onOpenHistory = { navController.navigate(NomadRoutes.HISTORY) },
+                onLoggedOut = {
+                    navController.navigate(NomadRoutes.REGISTER) {
+                        popUpTo(0) { inclusive = true }
+                    }
+                }
+            )
+        }
+        composable(NomadRoutes.JOURNAL) {
+            JournalRoute(onClose = { navController.popBackStack() })
+        }
+        composable(NomadRoutes.HISTORY) {
+            HistoryMapRoute(onClose = { navController.popBackStack() })
         }
     }
 }

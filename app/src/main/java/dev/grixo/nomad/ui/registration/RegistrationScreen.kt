@@ -4,6 +4,7 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -49,6 +50,7 @@ fun RegistrationRoute(
     onFinished: () -> Unit,
     viewModel: RegistrationViewModel = hiltViewModel()
 ) {
+    BackHandler(enabled = true) { /* no back during registration */ }
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     LaunchedEffect(state.completed) {
         if (state.completed) onFinished()

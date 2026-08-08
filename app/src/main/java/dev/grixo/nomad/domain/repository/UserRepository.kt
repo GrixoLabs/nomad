@@ -10,4 +10,5 @@ interface UserRepository {
     fun observeJournalEnabled(): Flow<Boolean>
     suspend fun register(profile: UserProfile): Result<Unit>
     suspend fun skipRegistration()
+    suspend fun logout()
 }

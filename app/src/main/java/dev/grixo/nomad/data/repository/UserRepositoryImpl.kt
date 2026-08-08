@@ -70,4 +70,8 @@ class UserRepositoryImpl @Inject constructor(
     override suspend fun skipRegistration() {
         preferenceManager.skipRegistration()
     }
+
+    override suspend fun logout() {
+        preferenceManager.logout()
+    }
 }
