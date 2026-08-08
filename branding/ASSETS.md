@@ -20,16 +20,16 @@ Android does not use a web favicon. The launcher icon *is* the app icon.
 
 Suggested sizes (px): mdpi 48, hdpi 72, xhdpi 96, xxhdpi 144, xxxhdpi 192.
 
-## 2) Registration page logos
+## 2) Registration page logos (wired)
 
 | Variant | Path |
 |--------|------|
-| Light | `app/src/main/res/drawable/logo_nomad.xml` **or** `drawable-nodpi/logo_nomad.png` |
-| Dark | `app/src/main/res/drawable-night/logo_nomad.xml` **or** `drawable-night-nodpi/logo_nomad.png` |
+| Light | `app/src/main/res/drawable/logo_nomad.png` *(from your lighticon)* |
+| Dark | `app/src/main/res/drawable-night/logo_nomad.png` *(from your darkicon)* |
 
-If you drop PNGs named `logo_nomad.png` into `drawable-nodpi` / `drawable-night-nodpi`, remove the matching vector XML so the PNG wins (or rename vectors).
+Registration loads `@drawable/logo_nomad`; Android picks day/night automatically.
 
-Registration already loads `@drawable/logo_nomad` and Android picks day/night automatically.
+**Note:** Android resource names cannot contain hyphens or capitals (`lighticon-Photoroom.png` is invalid). Always use `logo_nomad.png` / `ic_launcher.png`.
 
 ## 3) Web favicon (backend / website only)
 
