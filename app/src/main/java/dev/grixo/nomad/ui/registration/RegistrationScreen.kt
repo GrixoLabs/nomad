@@ -43,10 +43,6 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.grixo.nomad.R
 import dev.grixo.nomad.domain.model.Gender
 import dev.grixo.nomad.ui.components.BrandLogo
-import dev.grixo.nomad.ui.theme.DeepNavy
-import dev.grixo.nomad.ui.theme.MidnightBlue
-import dev.grixo.nomad.ui.theme.NomadBackground
-import dev.grixo.nomad.ui.theme.NomadSurfaceSoft
 
 @Composable
 fun RegistrationRoute(
@@ -81,13 +77,17 @@ fun RegistrationScreen(
     onSubmit: () -> Unit,
     onSkip: () -> Unit
 ) {
+    val colors = MaterialTheme.colorScheme
     val fieldColors = OutlinedTextFieldDefaults.colors(
-        focusedBorderColor = MidnightBlue,
-        unfocusedBorderColor = MaterialTheme.colorScheme.outline,
-        focusedContainerColor = MaterialTheme.colorScheme.surface,
-        unfocusedContainerColor = MaterialTheme.colorScheme.surface,
-        focusedLabelColor = MidnightBlue,
-        cursorColor = MidnightBlue
+        focusedBorderColor = colors.primary,
+        unfocusedBorderColor = colors.outline,
+        focusedContainerColor = colors.surface,
+        unfocusedContainerColor = colors.surface,
+        focusedLabelColor = colors.primary,
+        unfocusedLabelColor = colors.onSurfaceVariant,
+        focusedTextColor = colors.onSurface,
+        unfocusedTextColor = colors.onSurface,
+        cursorColor = colors.primary
     )
 
     Box(
@@ -95,7 +95,11 @@ fun RegistrationScreen(
             .fillMaxSize()
             .background(
                 Brush.verticalGradient(
-                    listOf(NomadBackground, NomadSurfaceSoft, MidnightBlue.copy(alpha = 0.10f))
+                    listOf(
+                        colors.background,
+                        colors.surfaceVariant.copy(alpha = 0.55f),
+                        colors.primary.copy(alpha = 0.12f)
+                    )
                 )
             )
     ) {
@@ -115,12 +119,12 @@ fun RegistrationScreen(
                     Text(
                         text = stringResource(R.string.registration_title),
                         style = MaterialTheme.typography.headlineMedium,
-                        color = DeepNavy
+                        color = colors.onBackground
                     )
                     Text(
                         text = stringResource(R.string.registration_subtitle),
                         style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = colors.onSurfaceVariant
                     )
                 }
             }
@@ -171,7 +175,7 @@ fun RegistrationScreen(
             Text(
                 text = stringResource(R.string.gender_label),
                 style = MaterialTheme.typography.titleMedium,
-                color = DeepNavy
+                color = colors.onBackground
             )
             FlowRow(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -183,8 +187,10 @@ fun RegistrationScreen(
                         onClick = { onGenderChange(gender) },
                         label = { Text(gender.label) },
                         colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
-                            selectedLabelColor = DeepNavy
+                            selectedContainerColor = colors.primaryContainer,
+                            selectedLabelColor = colors.onPrimaryContainer,
+                            containerColor = colors.surface,
+                            labelColor = colors.onSurface
                         )
                     )
                 }
@@ -211,7 +217,10 @@ fun RegistrationScreen(
                     .fillMaxWidth()
                     .height(52.dp),
                 shape = RoundedCornerShape(16.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = MidnightBlue)
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = colors.primary,
+                    contentColor = colors.onPrimary
+                )
             ) {
                 Text(stringResource(R.string.register_cta))
             }
@@ -221,7 +230,7 @@ fun RegistrationScreen(
                 enabled = !state.isSubmitting,
                 modifier = Modifier.align(Alignment.CenterHorizontally)
             ) {
-                Text(stringResource(R.string.skip_cta), color = MidnightBlue)
+                Text(stringResource(R.string.skip_cta), color = colors.primary)
             }
 
             Text(

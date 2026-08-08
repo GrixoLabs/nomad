@@ -1,5 +1,11 @@
 package dev.grixo.nomad.ui.main
 
+data class NearbyPlaceUi(
+    val name: String,
+    val category: String?,
+    val distanceKm: Double?
+)
+
 data class MainUiState(
     val userName: String? = null,
     val isRegistered: Boolean = false,
@@ -9,6 +15,13 @@ data class MainUiState(
     val latitude: Double? = null,
     val longitude: Double? = null,
     val accuracy: Float? = null,
+    val placeLabel: String = "Locating…",
+    val weatherSummary: String = "—",
+    val temperatureC: Double? = null,
+    val nearbyPlaces: List<NearbyPlaceUi> = emptyList(),
+    val nearbyLoading: Boolean = false,
+    val showNearby: Boolean = false,
+    val contextLoading: Boolean = false,
     val batteryPercent: Int? = null,
     val networkType: String = "Unknown",
     val lastUploadTime: String = "Never",

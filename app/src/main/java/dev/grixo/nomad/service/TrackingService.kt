@@ -11,13 +11,13 @@ import com.google.android.gms.location.LocationResult
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
 import dagger.hilt.android.AndroidEntryPoint
+import dev.grixo.nomad.data.location.LocationBus
 import dev.grixo.nomad.domain.repository.SignalRepository
 import dev.grixo.nomad.utils.NotificationHelper
 import dev.grixo.nomad.utils.SignalCollector
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import timber.log.Timber
 import javax.inject.Inject
@@ -27,6 +27,9 @@ class TrackingService : Service() {
 
     @Inject
     lateinit var signalRepository: SignalRepository
+
+    @Inject
+    lateinit var locationBus: LocationBus
 
     private val serviceJob = SupervisorJob()
     private val serviceScope = CoroutineScope(Dispatchers.IO + serviceJob)
@@ -55,13 +58,33 @@ class TrackingService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         Timber.d("TrackingService started")
+        fetchImmediateLocation()
         requestLocationUpdates()
         return START_STICKY
+    }
+
+    private fun fetchImmediateLocation() {
+        try {
+            fusedLocationClient.getCurrentLocation(Priority.PRIORITY_HIGH_ACCURACY, null)
+                .addOnSuccessListener { location ->
+                    if (location != null) {
+                        Timber.d("Immediate location: ${location.latitude}, ${location.longitude}")
+                        processLocation(location)
+                    } else {
+                        fusedLocationClient.lastLocation.addOnSuccessListener { last ->
+                            if (last != null) processLocation(last)
+                        }
+                    }
+                }
+        } catch (unlikely: SecurityException) {
+            Timber.e(unlikely, "Lost location permission for immediate fetch.")
+        }
     }
 
     private fun requestLocationUpdates() {
         val locationRequest = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 5 * 60 * 1000L)
             .setMinUpdateIntervalMillis(60 * 1000L)
+            .setMaxUpdates(Int.MAX_VALUE)
             .build()
 
         try {
@@ -79,12 +102,21 @@ class TrackingService : Service() {
         serviceScope.launch {
             val signal = SignalCollector.collect(this@TrackingService, location)
             val result = signalRepository.sendSignalDirectly(signal)
-            if (result.isFailure) {
+            val uploaded = result.isSuccess
+            if (!uploaded) {
                 Timber.w("Failed to send signal directly, saving to offline storage")
                 signalRepository.saveSignal(signal)
             } else {
                 Timber.d("Signal sent successfully")
             }
+            locationBus.publish(
+                locationBus.fromLocation(
+                    location = location,
+                    batteryPercent = signal.batteryPercent.takeIf { it >= 0 },
+                    networkType = signal.networkType,
+                    uploaded = uploaded
+                )
+            )
         }
     }
 

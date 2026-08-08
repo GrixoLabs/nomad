@@ -7,6 +7,9 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -17,9 +20,10 @@ import androidx.navigation.compose.rememberNavController
 import dev.grixo.nomad.domain.model.OnboardingStatus
 import dev.grixo.nomad.ui.main.MainRoute
 import dev.grixo.nomad.ui.registration.RegistrationRoute
+import dev.grixo.nomad.ui.splash.SplashScreen
 
 object NomadRoutes {
-    const val GATE = "gate"
+    const val SPLASH = "splash"
     const val REGISTER = "register"
     const val HOME = "home"
 }
@@ -30,6 +34,7 @@ fun NomadNavHost(
 ) {
     val status by viewModel.status.collectAsStateWithLifecycle()
     val navController = rememberNavController()
+    var splashDone by rememberSaveable { mutableStateOf(false) }
 
     val resolvedStatus = status
     if (resolvedStatus == null) {
@@ -39,8 +44,13 @@ fun NomadNavHost(
                 .background(MaterialTheme.colorScheme.background),
             contentAlignment = Alignment.Center
         ) {
-            CircularProgressIndicator()
+            CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
         }
+        return
+    }
+
+    if (!splashDone) {
+        SplashScreen(onFinished = { splashDone = true })
         return
     }
 

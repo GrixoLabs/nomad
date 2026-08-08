@@ -8,6 +8,7 @@ import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dev.grixo.nomad.data.location.LocationBus
 import dev.grixo.nomad.data.network.NomadApi
 import dev.grixo.nomad.domain.model.OnboardingStatus
 import dev.grixo.nomad.domain.repository.DeviceRepository
@@ -29,7 +30,8 @@ class MainViewModel @Inject constructor(
     private val signalRepository: SignalRepository,
     private val userRepository: UserRepository,
     private val api: NomadApi,
-    private val workManager: WorkManager
+    private val workManager: WorkManager,
+    private val locationBus: LocationBus
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(MainUiState())
@@ -62,6 +64,26 @@ class MainViewModel @Inject constructor(
                 _uiState.update { it.copy(offlineQueueCount = offline.size) }
             }
         }
+        viewModelScope.launch {
+            locationBus.events.collect { event ->
+                _uiState.update {
+                    it.copy(
+                        latitude = event.latitude,
+                        longitude = event.longitude,
+                        accuracy = event.accuracyM,
+                        batteryPercent = event.batteryPercent,
+                        networkType = event.networkType,
+                        lastUploadTime = if (event.uploaded) {
+                            LocalDateTime.now().format(DateTimeFormatter.ofPattern("HH:mm:ss"))
+                        } else {
+                            it.lastUploadTime
+                        },
+                        isTracking = true
+                    )
+                }
+                refreshPlaceContext(event.latitude, event.longitude)
+            }
+        }
     }
 
     fun checkBackendHealth() {
@@ -83,27 +105,83 @@ class MainViewModel @Inject constructor(
         _uiState.update { it.copy(permissionDenied = denied) }
     }
 
-    fun updateLiveSignal(
-        latitude: Double?,
-        longitude: Double?,
-        accuracy: Float?,
-        batteryPercent: Int?,
-        networkType: String,
-        uploaded: Boolean
-    ) {
-        _uiState.update {
-            it.copy(
-                latitude = latitude,
-                longitude = longitude,
-                accuracy = accuracy,
-                batteryPercent = batteryPercent,
-                networkType = networkType,
-                lastUploadTime = if (uploaded) {
-                    LocalDateTime.now().format(DateTimeFormatter.ofPattern("HH:mm:ss"))
+    fun loadNearbyPlaces() {
+        val lat = _uiState.value.latitude
+        val lon = _uiState.value.longitude
+        if (lat == null || lon == null) {
+            _uiState.update { it.copy(errorMessage = "Location not available yet") }
+            return
+        }
+        viewModelScope.launch {
+            _uiState.update { it.copy(nearbyLoading = true, showNearby = true, errorMessage = null) }
+            try {
+                val response = api.nearbyPlaces(lat, lon, 10)
+                if (response.isSuccessful && response.body() != null) {
+                    val places = response.body()!!.places.map {
+                        NearbyPlaceUi(
+                            name = it.name,
+                            category = it.category,
+                            distanceKm = it.distance_m?.div(1000.0)
+                        )
+                    }
+                    _uiState.update {
+                        it.copy(nearbyPlaces = places, nearbyLoading = false)
+                    }
                 } else {
-                    it.lastUploadTime
+                    _uiState.update {
+                        it.copy(
+                            nearbyLoading = false,
+                            errorMessage = "Could not load nearby places (${response.code()})"
+                        )
+                    }
                 }
-            )
+            } catch (e: Exception) {
+                _uiState.update {
+                    it.copy(
+                        nearbyLoading = false,
+                        errorMessage = e.message ?: "Nearby places request failed"
+                    )
+                }
+            }
+        }
+    }
+
+    fun hideNearby() {
+        _uiState.update { it.copy(showNearby = false) }
+    }
+
+    private fun refreshPlaceContext(lat: Double, lon: Double) {
+        viewModelScope.launch {
+            _uiState.update { it.copy(contextLoading = true) }
+            try {
+                val place = api.resolvePlace(lat, lon)
+                if (place.isSuccessful && place.body() != null) {
+                    val body = place.body()!!
+                    val label = listOfNotNull(body.city, body.region, body.country)
+                        .distinct()
+                        .joinToString(", ")
+                        .ifBlank { body.display_name }
+                    _uiState.update { it.copy(placeLabel = label) }
+                }
+            } catch (_: Exception) {
+                // keep previous label
+            }
+            try {
+                val weather = api.getWeather(lat, lon)
+                if (weather.isSuccessful && weather.body() != null) {
+                    val body = weather.body()!!
+                    _uiState.update {
+                        it.copy(
+                            weatherSummary = body.summary,
+                            temperatureC = body.temperature_c
+                        )
+                    }
+                }
+            } catch (_: Exception) {
+                // keep previous weather
+            }
+            _uiState.update { it.copy(contextLoading = false) }
+            checkBackendHealth()
         }
     }
 
@@ -121,5 +199,6 @@ class MainViewModel @Inject constructor(
             ExistingWorkPolicy.REPLACE,
             syncRequest
         )
+        checkBackendHealth()
     }
 }

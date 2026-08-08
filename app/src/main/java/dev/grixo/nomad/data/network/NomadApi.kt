@@ -2,14 +2,18 @@ package dev.grixo.nomad.data.network
 
 import dev.grixo.nomad.data.network.model.DeviceRegistrationRequest
 import dev.grixo.nomad.data.network.model.DeviceRegistrationResponse
+import dev.grixo.nomad.data.network.model.NearbyPlacesResponse
+import dev.grixo.nomad.data.network.model.PlaceResolveResponse
 import dev.grixo.nomad.data.network.model.SignalRequest
 import dev.grixo.nomad.data.network.model.UserRegistrationRequest
 import dev.grixo.nomad.data.network.model.UserRegistrationResponse
+import dev.grixo.nomad.data.network.model.WeatherResponse
 import okhttp3.ResponseBody
 import retrofit2.Response
 import retrofit2.http.Body
 import retrofit2.http.GET
 import retrofit2.http.POST
+import retrofit2.http.Query
 
 interface NomadApi {
 
@@ -25,7 +29,27 @@ interface NomadApi {
     @POST("api/v1/signals")
     suspend fun sendSignal(@Body request: SignalRequest): Response<ResponseBody>
 
+    @GET("api/v1/places/resolve")
+    suspend fun resolvePlace(
+        @Query("lat") lat: Double,
+        @Query("lon") lon: Double
+    ): Response<PlaceResolveResponse>
+
+    @GET("api/v1/weather")
+    suspend fun getWeather(
+        @Query("lat") lat: Double,
+        @Query("lon") lon: Double
+    ): Response<WeatherResponse>
+
+    @GET("api/v1/places/nearby")
+    suspend fun nearbyPlaces(
+        @Query("lat") lat: Double,
+        @Query("lon") lon: Double,
+        @Query("limit") limit: Int = 10
+    ): Response<NearbyPlacesResponse>
+
     companion object {
+        // Production edge. If this 502s, nomad.service is up but reverse-proxy isn't routing.
         const val BASE_URL = "https://nomad.grixo.dev/"
     }
 }
