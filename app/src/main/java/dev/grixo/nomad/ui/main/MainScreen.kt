@@ -408,15 +408,22 @@ fun MainScreen(
                         ) { Text("History map") }
                     }
                 } else {
-                    Button(
-                        onClick = onOpenRegister,
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(14.dp),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = colors.primary,
-                            contentColor = colors.onPrimary
-                        )
-                    ) { Text("Register") }
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(
+                            onClick = onOpenRegister,
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(14.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = colors.primary,
+                                contentColor = colors.onPrimary
+                            )
+                        ) { Text("Register") }
+                        OutlinedButton(
+                            onClick = onOpenRegister,
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(14.dp)
+                        ) { Text("Sign in") }
+                    }
                 }
             }
 

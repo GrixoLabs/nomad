@@ -17,6 +17,20 @@ interface UserRepository {
 
     suspend fun resendRegistrationOtp(): Result<Unit>
 
+    /** Sign in with email or phone + password. */
+    suspend fun login(email: String?, phone: String?, password: String): Result<Unit>
+
+    /** Request password-reset OTP via email or phone. */
+    suspend fun forgotPassword(email: String?, phone: String?): Result<Unit>
+
+    /** Confirm reset OTP and set a new password. */
+    suspend fun resetPassword(
+        email: String?,
+        phone: String?,
+        otp: String,
+        newPassword: String
+    ): Result<Unit>
+
     suspend fun skipRegistration()
     suspend fun logout()
 }

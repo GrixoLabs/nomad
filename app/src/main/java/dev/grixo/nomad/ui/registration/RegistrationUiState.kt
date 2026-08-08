@@ -4,7 +4,10 @@ import dev.grixo.nomad.domain.model.Gender
 
 enum class RegistrationStep {
     PROFILE,
-    OTP
+    OTP,
+    SIGN_IN,
+    FORGOT,
+    RESET
 }
 
 data class RegistrationUiState(
@@ -12,6 +15,8 @@ data class RegistrationUiState(
     val name: String = "",
     val email: String = "",
     val phone: String = "",
+    /** Single contact field for sign-in / forgot (email or phone). */
+    val contact: String = "",
     val age: String = "",
     val gender: Gender = Gender.PREFER_NOT,
     val password: String = "",

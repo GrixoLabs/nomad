@@ -5,15 +5,19 @@ import dev.grixo.nomad.data.network.model.AuthRegisterRequest
 import dev.grixo.nomad.data.network.model.AuthRegisterResponse
 import dev.grixo.nomad.data.network.model.DeviceRegistrationRequest
 import dev.grixo.nomad.data.network.model.DeviceRegistrationResponse
+import dev.grixo.nomad.data.network.model.ForgotPasswordRequest
 import dev.grixo.nomad.data.network.model.HistoryResponse
 import dev.grixo.nomad.data.network.model.JournalCreateRequest
 import dev.grixo.nomad.data.network.model.JournalEntryResponse
+import dev.grixo.nomad.data.network.model.LoginRequest
 import dev.grixo.nomad.data.network.model.MapConfigResponse
 import dev.grixo.nomad.data.network.model.NearbyPlacesResponse
 import dev.grixo.nomad.data.network.model.PlaceResolveResponse
+import dev.grixo.nomad.data.network.model.ResetPasswordRequest
 import dev.grixo.nomad.data.network.model.SendEmailOtpRequest
 import dev.grixo.nomad.data.network.model.SendSmsOtpRequest
 import dev.grixo.nomad.data.network.model.SignalRequest
+import dev.grixo.nomad.data.network.model.TokenResponse
 import dev.grixo.nomad.data.network.model.VerifyEmailOtpRequest
 import dev.grixo.nomad.data.network.model.VerifySmsOtpRequest
 import dev.grixo.nomad.data.network.model.WeatherResponse
@@ -46,6 +50,15 @@ interface NomadApi {
 
     @POST("api/v1/auth/verify-sms-otp")
     suspend fun verifySmsOtp(@Body request: VerifySmsOtpRequest): Response<AuthMessageResponse>
+
+    @POST("api/v1/auth/login")
+    suspend fun login(@Body request: LoginRequest): Response<TokenResponse>
+
+    @POST("api/v1/auth/forgot-password")
+    suspend fun forgotPassword(@Body request: ForgotPasswordRequest): Response<AuthMessageResponse>
+
+    @POST("api/v1/auth/reset-password")
+    suspend fun resetPassword(@Body request: ResetPasswordRequest): Response<AuthMessageResponse>
 
     @POST("api/v1/signals")
     suspend fun sendSignal(@Body request: SignalRequest): Response<ResponseBody>

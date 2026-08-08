@@ -31,6 +31,8 @@ class PreferenceManager @Inject constructor(
     private val userAgeKey = intPreferencesKey("user_age")
     private val userGenderKey = stringPreferencesKey("user_gender")
     private val journalEnabledKey = booleanPreferencesKey("journal_enabled")
+    private val accessTokenKey = stringPreferencesKey("access_token")
+    private val refreshTokenKey = stringPreferencesKey("refresh_token")
 
     val deviceUuid: Flow<String?> = context.dataStore.data.map { it[deviceUuidKey] }
     val deviceId: Flow<Long?> = context.dataStore.data.map { it[deviceIdKey] }
@@ -68,13 +70,20 @@ class PreferenceManager @Inject constructor(
         context.dataStore.edit { it[deviceIdKey] = id }
     }
 
-    suspend fun saveUserProfile(profile: UserProfile) {
+    suspend fun saveAuthTokens(accessToken: String, refreshToken: String) {
+        context.dataStore.edit { prefs ->
+            prefs[accessTokenKey] = accessToken
+            prefs[refreshTokenKey] = refreshToken
+        }
+    }
+
+    suspend fun saveUserProfile(profile: UserProfile, journalEnabled: Boolean = true) {
         context.dataStore.edit { prefs ->
             prefs[onboardingStatusKey] = OnboardingStatus.REGISTERED.name
             prefs[userNameKey] = profile.name
             prefs[userAgeKey] = profile.age
             prefs[userGenderKey] = profile.gender.name
-            prefs[journalEnabledKey] = true
+            prefs[journalEnabledKey] = journalEnabled
             if (profile.email.isNullOrBlank()) prefs.remove(userEmailKey)
             else prefs[userEmailKey] = profile.email.trim()
             if (profile.phone.isNullOrBlank()) prefs.remove(userPhoneKey)
@@ -99,6 +108,8 @@ class PreferenceManager @Inject constructor(
             prefs.remove(userPhoneKey)
             prefs.remove(userAgeKey)
             prefs.remove(userGenderKey)
+            prefs.remove(accessTokenKey)
+            prefs.remove(refreshTokenKey)
         }
     }
 }
