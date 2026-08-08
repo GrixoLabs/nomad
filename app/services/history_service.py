@@ -31,8 +31,8 @@ TRAVEL_GAP_M = 180.0
 
 
 def round_coord(value: float) -> float:
-    """Store/display precision: 5 decimal places (~1.1 m)."""
-    return round(float(value), 5)
+    """Keep full float precision in API/DB payloads (UI may display fewer decimals)."""
+    return float(value)
 
 
 class HistoryService:
@@ -71,8 +71,8 @@ class HistoryService:
         ct, nonce = encrypt_journal(body)
         entry = JournalEntry(
             device_id=device.device_id,
-            latitude=round_coord(request.latitude),
-            longitude=round_coord(request.longitude),
+            latitude=float(request.latitude),
+            longitude=float(request.longitude),
             place_label=request.place_label,
             body_ciphertext=ct,
             body_nonce=nonce,

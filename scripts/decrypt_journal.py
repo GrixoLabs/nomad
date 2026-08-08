@@ -1,11 +1,15 @@
 #!/usr/bin/env python3
-"""Developer-only tool: decrypt journal ciphertext from the DB.
+"""Developer-only tool: demask journal bodies stored as AES-GCM ciphertext.
 
-Usage:
+IMPORTANT:
+  - `--entry-id` is the database row id (nomad.journal_entries.entry_id), NOT the crypto key.
+  - The mask/encryption key is `JOURNAL_MASK_KEY` in `.env` (falls back to `JWT_SECRET`).
+  - Without the correct JOURNAL_MASK_KEY, ciphertext cannot be read — that is intentional.
+
+Usage (from repo root, with .env loaded):
   python scripts/decrypt_journal.py --entry-id 12
   python scripts/decrypt_journal.py --device-uuid UUID --limit 20
-
-Requires JOURNAL_MASK_KEY (or JWT_SECRET) in .env matching the writing server.
+  python scripts/decrypt_journal.py --limit 5
 """
 
 from __future__ import annotations
