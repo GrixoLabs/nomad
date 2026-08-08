@@ -76,7 +76,9 @@ Flow for each: check local DB for grid key → else call 3rd party → persist �
 
 - Track: navy `idle` segments, crimson `travel` segments
 - Night stay: idle ≥6h within 22:00–08:00 local → concentric circle + weather
-- Developer decrypt: `python scripts/decrypt_journal.py --entry-id N`
+- Developer demask (needs `JOURNAL_MASK_KEY` in `.env`; `--entry-id` is the **row id**, not the crypto key):
+  `python scripts/decrypt_journal.py --entry-id N`
+- Coordinates stored at full GPS float precision; Android UI may show 3 decimals
 - Recompute nights: `python scripts/compute_night_stays.py --days 14`
 
 Nearby places default to **popularity** (top 10 for the city grid); pass `sort=distance` to reorder those 10.
