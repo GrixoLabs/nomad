@@ -46,7 +46,7 @@ class HistoryService:
         if key:
             style = settings.stadia_style or "alidade_smooth"
             template = (
-                f"https://tiles.stadiamaps.com/tiles/{style}/{{z}}/{{x}}/{{y}}@2x.png"
+                f"https://tiles.stadiamaps.com/tiles/{style}/{{z}}/{{x}}/{{y}}.png"
                 f"?api_key={key}"
             )
             return MapConfigResponse(
