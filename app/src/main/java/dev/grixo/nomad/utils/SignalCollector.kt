@@ -6,11 +6,14 @@ import android.content.IntentFilter
 import android.location.Location
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
+import android.net.wifi.WifiManager
 import android.os.BatteryManager
+import android.os.Build
 import android.os.PowerManager
+import android.bluetooth.BluetoothAdapter
+import android.bluetooth.BluetoothManager
 import dev.grixo.nomad.data.database.entity.SignalEntity
 import java.time.Instant
-import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 
 object SignalCollector {
@@ -20,16 +23,17 @@ object SignalCollector {
         val batteryPercent = batteryStatus?.let { intent ->
             val level = intent.getIntExtra(BatteryManager.EXTRA_LEVEL, -1)
             val scale = intent.getIntExtra(BatteryManager.EXTRA_SCALE, -1)
-            (level * 100 / scale.toFloat()).toInt()
+            if (level >= 0 && scale > 0) (level * 100 / scale.toFloat()).toInt() else -1
         } ?: -1
 
         val chargingStatus = batteryStatus?.getIntExtra(BatteryManager.EXTRA_STATUS, -1)
         val isCharging = chargingStatus == BatteryManager.BATTERY_STATUS_CHARGING ||
-                chargingStatus == BatteryManager.BATTERY_STATUS_FULL
+            chargingStatus == BatteryManager.BATTERY_STATUS_FULL
 
         val batteryTemp = (batteryStatus?.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, 0) ?: 0) / 10f
 
-        val connectivityManager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+        val connectivityManager =
+            context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
         val activeNetwork = connectivityManager.activeNetwork
         val capabilities = connectivityManager.getNetworkCapabilities(activeNetwork)
         val networkType = when {
@@ -38,9 +42,31 @@ object SignalCollector {
             else -> "UNKNOWN"
         }
 
+        val wifiEnabled = try {
+            val wifiManager =
+                context.applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
+            @Suppress("DEPRECATION")
+            wifiManager.isWifiEnabled
+        } catch (_: Exception) {
+            networkType == "WIFI"
+        }
+
+        val bluetoothEnabled = try {
+            val manager = context.getSystemService(BluetoothManager::class.java)
+            val adapter: BluetoothAdapter? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                manager?.adapter
+            } else {
+                @Suppress("DEPRECATION")
+                BluetoothAdapter.getDefaultAdapter()
+            }
+            adapter?.isEnabled == true
+        } catch (_: SecurityException) {
+            false
+        } catch (_: Exception) {
+            false
+        }
+
         val powerManager = context.getSystemService(Context.POWER_SERVICE) as PowerManager
-        val isPowerSaveMode = powerManager.isPowerSaveMode
-        val isScreenOn = powerManager.isInteractive
 
         return SignalEntity(
             gpsTimestampUtc = DateTimeFormatter.ISO_INSTANT.format(Instant.ofEpochMilli(location.time)),
@@ -54,10 +80,10 @@ object SignalCollector {
             charging = isCharging,
             batteryTemperature = batteryTemp,
             networkType = networkType,
-            wifiEnabled = true, // Simplified for phase 1
-            bluetoothEnabled = false, // Simplified for phase 1
-            screenOn = isScreenOn,
-            powerSaveMode = isPowerSaveMode
+            wifiEnabled = wifiEnabled,
+            bluetoothEnabled = bluetoothEnabled,
+            screenOn = powerManager.isInteractive,
+            powerSaveMode = powerManager.isPowerSaveMode
         )
     }
 }

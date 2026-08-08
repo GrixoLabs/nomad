@@ -17,6 +17,7 @@ import dev.grixo.nomad.utils.SignalCollector
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import timber.log.Timber
 import javax.inject.Inject
@@ -27,7 +28,8 @@ class TrackingService : Service() {
     @Inject
     lateinit var signalRepository: SignalRepository
 
-    private val serviceScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    private val serviceJob = SupervisorJob()
+    private val serviceScope = CoroutineScope(Dispatchers.IO + serviceJob)
     private lateinit var fusedLocationClient: FusedLocationProviderClient
     private lateinit var locationCallback: LocationCallback
 
@@ -35,11 +37,14 @@ class TrackingService : Service() {
         super.onCreate()
         Timber.d("TrackingService created")
         NotificationHelper.createNotificationChannel(this)
-        startForeground(NotificationHelper.NOTIFICATION_ID, NotificationHelper.getNotification(this, "Collecting signals..."))
+        startForeground(
+            NotificationHelper.NOTIFICATION_ID,
+            NotificationHelper.getNotification(this, "Collecting signals…")
+        )
 
         fusedLocationClient = LocationServices.getFusedLocationProviderClient(this)
         locationCallback = object : LocationCallback() {
-            override fun LocationResult.onLocationResult(locationResult: LocationResult) {
+            override fun onLocationResult(locationResult: LocationResult) {
                 locationResult.lastLocation?.let { location ->
                     Timber.d("Location received: ${location.latitude}, ${location.longitude}")
                     processLocation(location)
@@ -55,8 +60,8 @@ class TrackingService : Service() {
     }
 
     private fun requestLocationUpdates() {
-        val locationRequest = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 5 * 60 * 1000L) // 5 minutes
-            .setMinUpdateIntervalMillis(1 * 60 * 1000L) // 1 minute
+        val locationRequest = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 5 * 60 * 1000L)
+            .setMinUpdateIntervalMillis(60 * 1000L)
             .build()
 
         try {
@@ -86,8 +91,11 @@ class TrackingService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onDestroy() {
-        super.onDestroy()
         Timber.d("TrackingService destroyed")
-        fusedLocationClient.removeLocationUpdates(locationCallback)
+        if (::fusedLocationClient.isInitialized && ::locationCallback.isInitialized) {
+            fusedLocationClient.removeLocationUpdates(locationCallback)
+        }
+        serviceJob.cancel()
+        super.onDestroy()
     }
 }

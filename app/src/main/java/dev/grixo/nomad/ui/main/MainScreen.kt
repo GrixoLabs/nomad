@@ -1,178 +1,263 @@
 package dev.grixo.nomad.ui.main
 
 import android.Manifest
-import android.content.Context
 import android.content.Intent
-import android.content.pm.PackageManager
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.layout.*
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import dev.grixo.nomad.R
 import dev.grixo.nomad.service.TrackingService
+import dev.grixo.nomad.ui.theme.NomadMist
+import dev.grixo.nomad.ui.theme.NomadSand
+import dev.grixo.nomad.ui.theme.NomadTealSoft
 
 @Composable
-fun MainScreen(viewModel: MainViewModel) {
-    val uiState by viewModel.uiState.collectAsState()
+fun MainRoute(viewModel: MainViewModel = hiltViewModel()) {
+    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val context = LocalContext.current
 
-    val permissionsToRequest = mutableListOf(
-        Manifest.permission.ACCESS_FINE_LOCATION,
-        Manifest.permission.ACCESS_COARSE_LOCATION
-    ).apply {
+    val foregroundPermissions = buildList {
+        add(Manifest.permission.ACCESS_FINE_LOCATION)
+        add(Manifest.permission.ACCESS_COARSE_LOCATION)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             add(Manifest.permission.POST_NOTIFICATIONS)
         }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            add(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
-        }
-    }
+    }.toTypedArray()
 
-    val launcher = rememberLauncherForActivityResult(
+    val backgroundPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { /* optional background grant */ }
+
+    val foregroundPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
-    ) { permissions ->
-        val allGranted = permissions.values.all { it }
-        if (!allGranted) {
-            // Handle denied permissions (e.g. show a snackbar)
+    ) { result ->
+        val granted = result[Manifest.permission.ACCESS_FINE_LOCATION] == true ||
+            result[Manifest.permission.ACCESS_COARSE_LOCATION] == true
+        viewModel.setPermissionDenied(!granted)
+        if (granted && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            backgroundPermissionLauncher.launch(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
+        }
+        if (granted) {
+            val intent = Intent(context, TrackingService::class.java)
+            ContextCompat.startForegroundService(context, intent)
+            viewModel.setTrackingStatus(true)
         }
     }
 
-    LaunchedEffect(Unit) {
-        launcher.launch(permissionsToRequest.toTypedArray())
-    }
+    MainScreen(
+        state = uiState,
+        onStartTracking = {
+            foregroundPermissionLauncher.launch(foregroundPermissions)
+        },
+        onStopTracking = {
+            context.stopService(Intent(context, TrackingService::class.java))
+            viewModel.setTrackingStatus(false)
+        },
+        onSync = viewModel::triggerManualSync
+    )
+}
 
-    Scaffold(
-        topBar = {
-            CenterAlignedTopAppBar(
-                title = { Text("Nomad", fontWeight = FontWeight.Bold) }
+@Composable
+fun MainScreen(
+    state: MainUiState,
+    onStartTracking: () -> Unit,
+    onStopTracking: () -> Unit,
+    onSync: () -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(
+                Brush.verticalGradient(listOf(NomadMist, NomadSand, NomadTealSoft.copy(alpha = 0.35f)))
             )
-        }
-    ) { padding ->
+    ) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(padding)
-                .padding(16.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 24.dp, vertical = 36.dp),
+            verticalArrangement = Arrangement.spacedBy(18.dp)
         ) {
-            StatusCard(uiState)
-
-            SignalInfoCard(uiState)
-
-            Spacer(modifier = Modifier.weight(1f))
-
-            ActionButtons(
-                isTracking = uiState.isTracking,
-                onStart = {
-                    val intent = Intent(context, TrackingService::class.java)
-                    ContextCompat.startForegroundService(context, intent)
-                    viewModel.setTrackingStatus(true)
-                },
-                onStop = {
-                    val intent = Intent(context, TrackingService::class.java)
-                    context.stopService(intent)
-                    viewModel.setTrackingStatus(false)
-                },
-                onSync = {
-                    viewModel.triggerManualSync()
-                }
-            )
-        }
-    }
-}
-
-@Composable
-fun StatusCard(state: MainUiState) {
-    Card(
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("Backend", style = MaterialTheme.typography.titleMedium)
-                Spacer(modifier = Modifier.weight(1f))
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text(
-                    if (state.isConnected) "🟢 Connected" else "🔴 Disconnected",
-                    color = if (state.isConnected) Color(0xFF4CAF50) else Color(0xFFF44336)
+                    text = stringResource(R.string.app_name),
+                    style = MaterialTheme.typography.displayLarge,
+                    color = MaterialTheme.colorScheme.primary
+                )
+                Text(
+                    text = state.userName?.let { "Welcome, $it" } ?: "Travel quietly. Stay findable.",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
+
+            StatusBlock(state)
+            SignalBlock(state)
+            JournalBlock(state.journalEnabled)
+
+            if (state.permissionDenied) {
+                Text(
+                    text = "Location permission is needed to start tracking.",
+                    color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodyMedium
+                )
+            }
+
+            Spacer(Modifier.height(8.dp))
+
+            AnimatedContent(
+                targetState = state.isTracking,
+                transitionSpec = { fadeIn() togetherWith fadeOut() },
+                label = "tracking_cta"
+            ) { tracking ->
+                if (!tracking) {
+                    Button(
+                        onClick = onStartTracking,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(52.dp),
+                        shape = RoundedCornerShape(16.dp)
+                    ) {
+                        Text("Start tracking")
+                    }
+                } else {
+                    Button(
+                        onClick = onStopTracking,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(52.dp),
+                        shape = RoundedCornerShape(16.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.error
+                        )
+                    ) {
+                        Text("Stop tracking")
+                    }
+                }
+            }
+
+            OutlinedButton(
+                onClick = onSync,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(52.dp),
+                shape = RoundedCornerShape(16.dp)
+            ) {
+                Text("Sync now")
+            }
         }
     }
 }
 
 @Composable
-fun SignalInfoCard(state: MainUiState) {
-    Card(
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            Text("Location", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-            InfoRow("Latitude", state.latitude?.toString() ?: "N/A")
-            InfoRow("Longitude", state.longitude?.toString() ?: "N/A")
-            InfoRow("Accuracy", state.accuracy?.let { "${it}m" } ?: "N/A")
-            
-            Divider(modifier = Modifier.padding(vertical = 4.dp))
-            
-            InfoRow("Battery", state.batteryPercent?.let { "$it%" } ?: "N/A")
-            InfoRow("Network", state.networkType)
-            InfoRow("Last Upload", state.lastUploadTime)
-        }
+private fun StatusBlock(state: MainUiState) {
+    SoftPanel {
+        InfoRow("Backend", if (state.isConnected) "Connected" else "Offline")
+        InfoRow("Tracking", if (state.isTracking) "Active" else "Idle")
+        InfoRow("Queued signals", state.offlineQueueCount.toString())
+        InfoRow("Account", if (state.isRegistered) "Registered" else "Guest")
     }
 }
 
 @Composable
-fun InfoRow(label: String, value: String) {
-    Row(modifier = Modifier.fillMaxWidth()) {
-        Text(label, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Spacer(modifier = Modifier.weight(1f))
-        Text(value, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+private fun SignalBlock(state: MainUiState) {
+    SoftPanel {
+        Text("Live signal", style = MaterialTheme.typography.titleLarge)
+        Spacer(Modifier.height(8.dp))
+        InfoRow("Latitude", state.latitude?.let { "%.5f".format(it) } ?: "—")
+        InfoRow("Longitude", state.longitude?.let { "%.5f".format(it) } ?: "—")
+        InfoRow("Accuracy", state.accuracy?.let { "${it.toInt()} m" } ?: "—")
+        HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+        InfoRow("Battery", state.batteryPercent?.let { "$it%" } ?: "—")
+        InfoRow("Network", state.networkType)
+        InfoRow("Last upload", state.lastUploadTime)
     }
 }
 
 @Composable
-fun ActionButtons(
-    isTracking: Boolean,
-    onStart: () -> Unit,
-    onStop: () -> Unit,
-    onSync: () -> Unit
-) {
+private fun JournalBlock(journalEnabled: Boolean) {
+    SoftPanel {
+        Text(
+            text = stringResource(R.string.journal_coming_title),
+            style = MaterialTheme.typography.titleLarge
+        )
+        Spacer(Modifier.height(6.dp))
+        Text(
+            text = if (journalEnabled) {
+                stringResource(R.string.journal_coming_body)
+            } else {
+                stringResource(R.string.journal_locked_body)
+            },
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
+}
+
+@Composable
+private fun SoftPanel(content: @Composable () -> Unit) {
     Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(
+                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.88f),
+                shape = RoundedCornerShape(20.dp)
+            )
+            .padding(18.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+        content = { content() }
+    )
+}
+
+@Composable
+private fun InfoRow(label: String, value: String) {
+    Row(
         modifier = Modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        if (!isTracking) {
-            Button(
-                onClick = onStart,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text("Start Tracking")
-            }
-        } else {
-            Button(
-                onClick = onStop,
-                modifier = Modifier.fillMaxWidth(),
-                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
-            ) {
-                Text("Stop Tracking")
-            }
-        }
-        
-        OutlinedButton(
-            onClick = onSync,
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Text("Sync Now")
-        }
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Spacer(modifier = Modifier.weight(1f))
+        Text(
+            text = value,
+            style = MaterialTheme.typography.titleMedium
+        )
     }
 }

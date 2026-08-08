@@ -26,9 +26,9 @@ class SignalRepositoryImpl @Inject constructor(
 
     override suspend fun sendSignalDirectly(signal: SignalEntity): Result<Unit> {
         return try {
-            val uuid = preferenceManager.deviceUuid.first() ?: return Result.failure(Exception("No device UUID"))
-            val request = signal.toRequest(uuid)
-            val response = api.sendSignal(request)
+            val uuid = preferenceManager.deviceUuid.first()
+                ?: return Result.failure(Exception("No device UUID"))
+            val response = api.sendSignal(signal.toRequest(uuid))
             if (response.isSuccessful) {
                 Result.success(Unit)
             } else {
@@ -41,7 +41,8 @@ class SignalRepositoryImpl @Inject constructor(
 
     override suspend fun syncSignals(): Result<Unit> {
         return try {
-            val uuid = preferenceManager.deviceUuid.first() ?: return Result.failure(Exception("No device UUID"))
+            val uuid = preferenceManager.deviceUuid.first()
+                ?: return Result.failure(Exception("No device UUID"))
             val offlineSignals = signalDao.getSignalsChunk()
             if (offlineSignals.isEmpty()) return Result.success(Unit)
 
@@ -53,7 +54,12 @@ class SignalRepositoryImpl @Inject constructor(
                     successCount++
                 }
             }
-            Result.success(Unit)
+
+            when {
+                successCount == offlineSignals.size -> Result.success(Unit)
+                successCount > 0 -> Result.success(Unit)
+                else -> Result.failure(Exception("All sync attempts failed"))
+            }
         } catch (e: Exception) {
             Result.failure(e)
         }

@@ -1,11 +1,16 @@
 package dev.grixo.nomad.data.datastore
 
 import android.content.Context
+import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import dagger.hilt.android.qualifiers.ApplicationContext
+import dev.grixo.nomad.domain.model.Gender
+import dev.grixo.nomad.domain.model.OnboardingStatus
+import dev.grixo.nomad.domain.model.UserProfile
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import javax.inject.Inject
@@ -15,28 +20,72 @@ private val Context.dataStore by preferencesDataStore(name = "nomad_prefs")
 
 @Singleton
 class PreferenceManager @Inject constructor(
-    @ApplicationContext private val context: Context
+    @param:ApplicationContext private val context: Context
 ) {
     private val deviceUuidKey = stringPreferencesKey("device_uuid")
     private val deviceIdKey = longPreferencesKey("device_id")
+    private val onboardingStatusKey = stringPreferencesKey("onboarding_status")
+    private val userNameKey = stringPreferencesKey("user_name")
+    private val userEmailKey = stringPreferencesKey("user_email")
+    private val userPhoneKey = stringPreferencesKey("user_phone")
+    private val userAgeKey = intPreferencesKey("user_age")
+    private val userGenderKey = stringPreferencesKey("user_gender")
+    private val journalEnabledKey = booleanPreferencesKey("journal_enabled")
 
-    val deviceUuid: Flow<String?> = context.dataStore.data.map { preferences ->
-        preferences[deviceUuidKey]
-    }
+    val deviceUuid: Flow<String?> = context.dataStore.data.map { it[deviceUuidKey] }
+    val deviceId: Flow<Long?> = context.dataStore.data.map { it[deviceIdKey] }
 
-    val deviceId: Flow<Long?> = context.dataStore.data.map { preferences ->
-        preferences[deviceIdKey]
-    }
-
-    suspend fun saveDeviceUuid(uuid: String) {
-        context.dataStore.edit { preferences ->
-            preferences[deviceUuidKey] = uuid
+    val onboardingStatus: Flow<OnboardingStatus> = context.dataStore.data.map { prefs ->
+        when (prefs[onboardingStatusKey]) {
+            OnboardingStatus.REGISTERED.name -> OnboardingStatus.REGISTERED
+            OnboardingStatus.SKIPPED.name -> OnboardingStatus.SKIPPED
+            else -> OnboardingStatus.PENDING
         }
     }
 
+    val journalEnabled: Flow<Boolean> = context.dataStore.data.map { prefs ->
+        prefs[journalEnabledKey] == true
+    }
+
+    val userProfile: Flow<UserProfile?> = context.dataStore.data.map { prefs ->
+        val name = prefs[userNameKey] ?: return@map null
+        val age = prefs[userAgeKey] ?: return@map null
+        val gender = Gender.fromStorage(prefs[userGenderKey]) ?: return@map null
+        UserProfile(
+            name = name,
+            email = prefs[userEmailKey],
+            phone = prefs[userPhoneKey],
+            age = age,
+            gender = gender
+        )
+    }
+
+    suspend fun saveDeviceUuid(uuid: String) {
+        context.dataStore.edit { it[deviceUuidKey] = uuid }
+    }
+
     suspend fun saveDeviceId(id: Long) {
-        context.dataStore.edit { preferences ->
-            preferences[deviceIdKey] = id
+        context.dataStore.edit { it[deviceIdKey] = id }
+    }
+
+    suspend fun saveUserProfile(profile: UserProfile) {
+        context.dataStore.edit { prefs ->
+            prefs[onboardingStatusKey] = OnboardingStatus.REGISTERED.name
+            prefs[userNameKey] = profile.name
+            prefs[userAgeKey] = profile.age
+            prefs[userGenderKey] = profile.gender.name
+            prefs[journalEnabledKey] = true
+            if (profile.email.isNullOrBlank()) prefs.remove(userEmailKey)
+            else prefs[userEmailKey] = profile.email.trim()
+            if (profile.phone.isNullOrBlank()) prefs.remove(userPhoneKey)
+            else prefs[userPhoneKey] = profile.phone.trim()
+        }
+    }
+
+    suspend fun skipRegistration() {
+        context.dataStore.edit { prefs ->
+            prefs[onboardingStatusKey] = OnboardingStatus.SKIPPED.name
+            prefs[journalEnabledKey] = false
         }
     }
 }

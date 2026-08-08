@@ -1,3 +1,23 @@
 <resources>
     <string name="app_name">Nomad</string>
+    <string name="registration_title">Create your profile</string>
+    <string name="registration_subtitle">A light identity so journal and safety features can find you.</string>
+    <string name="name_label">Name</string>
+    <string name="email_label">Email</string>
+    <string name="phone_label">Phone</string>
+    <string name="age_label">Age</string>
+    <string name="gender_label">Gender</string>
+    <string name="register_cta">Continue</string>
+    <string name="skip_cta">Skip for now</string>
+    <string name="skip_hint">You can track signals without an account. Journal stays locked until you register.</string>
+    <string name="contact_required">Add an email or phone number</string>
+    <string name="name_required">Name is required</string>
+    <string name="age_invalid">Enter an age between 13 and 120</string>
+    <string name="journal_locked_title">Journal locked</string>
+    <string name="journal_locked_body">Register with an email or phone to unlock place journals in Phase 2.</string>
+    <string name="journal_coming_title">Journal</string>
+    <string name="journal_coming_body">Phase 2 — note places you visit (500 characters). Maps arrive with it.</string>
+    <string name="tracking_channel_name">Nomad Tracking</string>
+    <string name="tracking_channel_desc">Used while Nomad collects safety signals</string>
+    <string name="tracking_notification_title">Nomad is tracking</string>
 </resources>

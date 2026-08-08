@@ -1,10 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="purple_200">#FFBB86FC</color>
-    <color name="purple_500">#FF6200EE</color>
-    <color name="purple_700">#FF3700B3</color>
-    <color name="teal_200">#FF03DAC5</color>
-    <color name="teal_700">#FF018786</color>
+    <color name="nomad_ink">#FF1C2430</color>
+    <color name="nomad_mist">#FFEEF2F4</color>
+    <color name="nomad_stone">#FFD7DEE3</color>
+    <color name="nomad_teal">#FF0F6E6A</color>
+    <color name="nomad_teal_soft">#FFD7EFED</color>
+    <color name="nomad_sand">#FFF7F4EF</color>
+    <color name="nomad_danger">#FFB23A3A</color>
     <color name="black">#FF000000</color>
     <color name="white">#FFFFFFFF</color>
+    <color name="ic_launcher_background">#FF0F6E6A</color>
 </resources>

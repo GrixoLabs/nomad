@@ -1,57 +1,37 @@
 package dev.grixo.nomad.ui.theme
 
-import android.app.Activity
-import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.darkColorScheme
-import androidx.compose.material3.dynamicDarkColorScheme
-import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.graphics.Color
 
-private val DarkColorScheme = darkColorScheme(
-    primary = Purple80,
-    secondary = PurpleGrey80,
-    tertiary = Pink80
-)
-
-private val LightColorScheme = lightColorScheme(
-    primary = Purple40,
-    secondary = PurpleGrey40,
-    tertiary = Pink40
-
-    /* Other default colors to override
-    background = Color(0xFFFFFBFE),
-    surface = Color(0xFFFFFBFE),
+private val NomadLightScheme = lightColorScheme(
+    primary = NomadTeal,
     onPrimary = Color.White,
+    primaryContainer = NomadTealSoft,
+    onPrimaryContainer = NomadInk,
+    secondary = NomadInk,
     onSecondary = Color.White,
-    onTertiary = Color.White,
-    onBackground = Color(0xFF1C1B1F),
-    onSurface = Color(0xFF1C1B1F),
-    */
+    background = NomadMist,
+    onBackground = NomadInk,
+    surface = NomadSurface,
+    onSurface = NomadInk,
+    surfaceVariant = NomadSand,
+    onSurfaceVariant = NomadMuted,
+    outline = NomadStone,
+    error = NomadDanger,
+    onError = Color.White
 )
 
 @Composable
 fun NomadTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
-    // Dynamic color is available on Android 12+
-    dynamicColor: Boolean = true,
     content: @Composable () -> Unit
 ) {
-    val colorScheme = when {
-        dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
-            val context = LocalContext.current
-            if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
-        }
-
-        darkTheme -> DarkColorScheme
-        else -> LightColorScheme
-    }
-
+    // Brand stays light and calm for V1; ignore system dark for a consistent look.
     MaterialTheme(
-        colorScheme = colorScheme,
+        colorScheme = NomadLightScheme,
         typography = Typography,
         content = content
     )

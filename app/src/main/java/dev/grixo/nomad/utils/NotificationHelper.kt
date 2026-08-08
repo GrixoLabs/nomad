@@ -13,13 +13,13 @@ object NotificationHelper {
     const val NOTIFICATION_ID = 1
 
     fun createNotificationChannel(context: Context) {
-        if (Build.VERSION.VERSION_ID >= Build.VERSION_CODES.O) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
                 CHANNEL_ID,
-                "Nomad Tracking",
+                context.getString(R.string.tracking_channel_name),
                 NotificationManager.IMPORTANCE_LOW
             ).apply {
-                description = "Used for Nomad foreground tracking service"
+                description = context.getString(R.string.tracking_channel_desc)
             }
             val manager = context.getSystemService(NotificationManager::class.java)
             manager.createNotificationChannel(channel)
@@ -28,10 +28,11 @@ object NotificationHelper {
 
     fun getNotification(context: Context, contentText: String): Notification {
         return NotificationCompat.Builder(context, CHANNEL_ID)
-            .setContentTitle("Nomad Tracking Active")
+            .setContentTitle(context.getString(R.string.tracking_notification_title))
             .setContentText(contentText)
-            .setSmallIcon(R.drawable.ic_launcher_foreground) // Use default for now
+            .setSmallIcon(R.drawable.ic_launcher_foreground)
             .setOngoing(true)
+            .setSilent(true)
             .build()
     }
 }

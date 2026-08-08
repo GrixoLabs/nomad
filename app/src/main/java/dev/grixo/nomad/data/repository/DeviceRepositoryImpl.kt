@@ -24,27 +24,28 @@ class DeviceRepositoryImpl @Inject constructor(
     override suspend fun initializeDevice() {
         val currentUuid = preferenceManager.deviceUuid.first()
         if (currentUuid == null) {
-            val newUuid = UUID.randomUUID().toString()
-            preferenceManager.saveDeviceUuid(newUuid)
+            preferenceManager.saveDeviceUuid(UUID.randomUUID().toString())
+        }
+        // Retry registration whenever we have a UUID but no server device_id yet.
+        if (preferenceManager.deviceId.first() == null) {
             registerDevice()
         }
     }
 
     override suspend fun registerDevice(): Result<Long> {
         return try {
-            val uuid = preferenceManager.deviceUuid.first() ?: UUID.randomUUID().toString().also {
-                preferenceManager.saveDeviceUuid(it)
-            }
-            
+            val uuid = preferenceManager.deviceUuid.first()
+                ?: UUID.randomUUID().toString().also { preferenceManager.saveDeviceUuid(it) }
+
             val request = DeviceRegistrationRequest(
                 device_uuid = uuid,
-                device_name = DeviceHelper.getDeviceName(),
-                manufacturer = DeviceHelper.getManufacturer(),
-                model = DeviceHelper.getModel(),
-                android_version = DeviceHelper.getAndroidVersion(),
-                app_version = DeviceHelper.getAppVersion()
+                device_name = DeviceHelper.getDeviceName().take(100),
+                manufacturer = DeviceHelper.getManufacturer().take(50),
+                model = DeviceHelper.getModel().take(50),
+                android_version = DeviceHelper.getAndroidVersion().take(30),
+                app_version = DeviceHelper.getAppVersion().take(30)
             )
-            
+
             val response = api.registerDevice(request)
             if (response.isSuccessful && response.body() != null) {
                 val deviceId = response.body()!!.device_id
