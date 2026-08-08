@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Light-theme logo placeholder. Replace with logo_nomad_light.png in drawable-nodpi if preferred. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="160dp"
+    android:height="48dp"
+    android:viewportWidth="160"
+    android:viewportHeight="48">
+    <path
+        android:fillColor="#1E3A8A"
+        android:pathData="M8,36 L8,12 L18,12 L30,28 L42,12 L52,12 L52,36 L42,36 L42,22 L32,36 L28,36 L18,22 L18,36 Z" />
+    <path
+        android:fillColor="#0F172A"
+        android:pathData="M60,36 L60,12 L78,12 Q90,12 90,24 Q90,36 78,36 Z M70,28 L76,28 Q80,28 80,24 Q80,20 76,20 L70,20 Z" />
+    <path
+        android:fillColor="#0F172A"
+        android:pathData="M98,36 L98,12 L108,12 L108,36 Z" />
+    <path
+        android:fillColor="#10B981"
+        android:pathData="M116,36 L116,12 L134,12 Q146,12 146,24 Q146,36 134,36 Z M126,28 L132,28 Q136,28 136,24 Q136,20 132,20 L126,20 Z" />
+</vector>

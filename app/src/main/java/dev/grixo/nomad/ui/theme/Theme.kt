@@ -2,26 +2,51 @@ package dev.grixo.nomad.ui.theme
 
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 
+private val SurfaceDark = Color(0xFF111827)
+
 private val NomadLightScheme = lightColorScheme(
-    primary = NomadTeal,
-    onPrimary = Color.White,
-    primaryContainer = NomadTealSoft,
-    onPrimaryContainer = NomadInk,
-    secondary = NomadInk,
-    onSecondary = Color.White,
-    background = NomadMist,
-    onBackground = NomadInk,
+    primary = MidnightBlue,
+    onPrimary = NomadOnPrimary,
+    primaryContainer = NomadSurfaceSoft,
+    onPrimaryContainer = DeepNavy,
+    secondary = Emerald,
+    onSecondary = NomadOnPrimary,
+    tertiary = SkyBlue,
+    onTertiary = NomadOnPrimary,
+    background = NomadBackground,
+    onBackground = DeepNavy,
     surface = NomadSurface,
-    onSurface = NomadInk,
-    surfaceVariant = NomadSand,
-    onSurfaceVariant = NomadMuted,
-    outline = NomadStone,
+    onSurface = DeepNavy,
+    surfaceVariant = NomadSurfaceSoft,
+    onSurfaceVariant = SlateGray,
+    outline = SlateGray.copy(alpha = 0.45f),
     error = NomadDanger,
-    onError = Color.White
+    onError = NomadOnPrimary
+)
+
+private val NomadDarkScheme = darkColorScheme(
+    primary = SkyBlue,
+    onPrimary = DeepNavy,
+    primaryContainer = MidnightBlue,
+    onPrimaryContainer = NomadOnPrimary,
+    secondary = Emerald,
+    onSecondary = DeepNavy,
+    tertiary = SkyBlue,
+    onTertiary = DeepNavy,
+    background = DeepNavy,
+    onBackground = NomadOnPrimary,
+    surface = SurfaceDark,
+    onSurface = NomadOnPrimary,
+    surfaceVariant = MidnightBlue.copy(alpha = 0.55f),
+    onSurfaceVariant = SlateGray,
+    outline = SlateGray.copy(alpha = 0.55f),
+    error = NomadDanger,
+    onError = NomadOnPrimary
 )
 
 @Composable
@@ -29,9 +54,8 @@ fun NomadTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
     content: @Composable () -> Unit
 ) {
-    // Brand stays light and calm for V1; ignore system dark for a consistent look.
     MaterialTheme(
-        colorScheme = NomadLightScheme,
+        colorScheme = if (darkTheme) NomadDarkScheme else NomadLightScheme,
         typography = Typography,
         content = content
     )

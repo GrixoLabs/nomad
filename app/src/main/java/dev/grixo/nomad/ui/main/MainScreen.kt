@@ -41,9 +41,10 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.grixo.nomad.R
 import dev.grixo.nomad.service.TrackingService
-import dev.grixo.nomad.ui.theme.NomadMist
-import dev.grixo.nomad.ui.theme.NomadSand
-import dev.grixo.nomad.ui.theme.NomadTealSoft
+import dev.grixo.nomad.ui.theme.DeepNavy
+import dev.grixo.nomad.ui.theme.MidnightBlue
+import dev.grixo.nomad.ui.theme.NomadBackground
+import dev.grixo.nomad.ui.theme.NomadSurfaceSoft
 
 @Composable
 fun MainRoute(viewModel: MainViewModel = hiltViewModel()) {
@@ -102,7 +103,9 @@ fun MainScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(
-                Brush.verticalGradient(listOf(NomadMist, NomadSand, NomadTealSoft.copy(alpha = 0.35f)))
+                Brush.verticalGradient(
+                    listOf(NomadBackground, NomadSurfaceSoft, MidnightBlue.copy(alpha = 0.08f))
+                )
             )
     ) {
         Column(
@@ -114,9 +117,9 @@ fun MainScreen(
         ) {
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text(
-                    text = stringResource(R.string.app_name),
+                    text = stringResource(R.string.app_name).uppercase(),
                     style = MaterialTheme.typography.displayLarge,
-                    color = MaterialTheme.colorScheme.primary
+                    color = DeepNavy
                 )
                 Text(
                     text = state.userName?.let { "Welcome, $it" } ?: "Travel quietly. Stay findable.",
@@ -125,9 +128,43 @@ fun MainScreen(
                 )
             }
 
-            StatusBlock(state)
-            SignalBlock(state)
-            JournalBlock(state.journalEnabled)
+            // Clean status panel — text only, no icons
+            SoftPanel {
+                InfoRow("Backend", if (state.isConnected) "Connected" else "Offline")
+                InfoRow("Tracking", if (state.isTracking) "Active" else "Idle")
+                InfoRow("Queued signals", state.offlineQueueCount.toString())
+                InfoRow("Account", if (state.isRegistered) "Registered" else "Guest")
+            }
+
+            SoftPanel {
+                Text("Live signal", style = MaterialTheme.typography.titleLarge, color = DeepNavy)
+                Spacer(Modifier.height(8.dp))
+                InfoRow("Latitude", state.latitude?.let { "%.5f".format(it) } ?: "—")
+                InfoRow("Longitude", state.longitude?.let { "%.5f".format(it) } ?: "—")
+                InfoRow("Accuracy", state.accuracy?.let { "${it.toInt()} m" } ?: "—")
+                HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+                InfoRow("Battery", state.batteryPercent?.let { "$it%" } ?: "—")
+                InfoRow("Network", state.networkType)
+                InfoRow("Last upload", state.lastUploadTime)
+            }
+
+            SoftPanel {
+                Text(
+                    text = stringResource(R.string.journal_coming_title),
+                    style = MaterialTheme.typography.titleLarge,
+                    color = DeepNavy
+                )
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    text = if (state.journalEnabled) {
+                        stringResource(R.string.journal_coming_body)
+                    } else {
+                        stringResource(R.string.journal_locked_body)
+                    },
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
 
             if (state.permissionDenied) {
                 Text(
@@ -150,7 +187,8 @@ fun MainScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(52.dp),
-                        shape = RoundedCornerShape(16.dp)
+                        shape = RoundedCornerShape(16.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = MidnightBlue)
                     ) {
                         Text("Start tracking")
                     }
@@ -177,54 +215,9 @@ fun MainScreen(
                     .height(52.dp),
                 shape = RoundedCornerShape(16.dp)
             ) {
-                Text("Sync now")
+                Text("Sync now", color = MidnightBlue)
             }
         }
-    }
-}
-
-@Composable
-private fun StatusBlock(state: MainUiState) {
-    SoftPanel {
-        InfoRow("Backend", if (state.isConnected) "Connected" else "Offline")
-        InfoRow("Tracking", if (state.isTracking) "Active" else "Idle")
-        InfoRow("Queued signals", state.offlineQueueCount.toString())
-        InfoRow("Account", if (state.isRegistered) "Registered" else "Guest")
-    }
-}
-
-@Composable
-private fun SignalBlock(state: MainUiState) {
-    SoftPanel {
-        Text("Live signal", style = MaterialTheme.typography.titleLarge)
-        Spacer(Modifier.height(8.dp))
-        InfoRow("Latitude", state.latitude?.let { "%.5f".format(it) } ?: "—")
-        InfoRow("Longitude", state.longitude?.let { "%.5f".format(it) } ?: "—")
-        InfoRow("Accuracy", state.accuracy?.let { "${it.toInt()} m" } ?: "—")
-        HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
-        InfoRow("Battery", state.batteryPercent?.let { "$it%" } ?: "—")
-        InfoRow("Network", state.networkType)
-        InfoRow("Last upload", state.lastUploadTime)
-    }
-}
-
-@Composable
-private fun JournalBlock(journalEnabled: Boolean) {
-    SoftPanel {
-        Text(
-            text = stringResource(R.string.journal_coming_title),
-            style = MaterialTheme.typography.titleLarge
-        )
-        Spacer(Modifier.height(6.dp))
-        Text(
-            text = if (journalEnabled) {
-                stringResource(R.string.journal_coming_body)
-            } else {
-                stringResource(R.string.journal_locked_body)
-            },
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
     }
 }
 
@@ -234,7 +227,7 @@ private fun SoftPanel(content: @Composable () -> Unit) {
         modifier = Modifier
             .fillMaxWidth()
             .background(
-                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.88f),
+                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
                 shape = RoundedCornerShape(20.dp)
             )
             .padding(18.dp),
@@ -257,7 +250,8 @@ private fun InfoRow(label: String, value: String) {
         Spacer(modifier = Modifier.weight(1f))
         Text(
             text = value,
-            style = MaterialTheme.typography.titleMedium
+            style = MaterialTheme.typography.titleMedium,
+            color = DeepNavy
         )
     }
 }

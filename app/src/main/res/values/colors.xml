@@ -1,13 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="nomad_ink">#FF1C2430</color>
-    <color name="nomad_mist">#FFEEF2F4</color>
-    <color name="nomad_stone">#FFD7DEE3</color>
-    <color name="nomad_teal">#FF0F6E6A</color>
-    <color name="nomad_teal_soft">#FFD7EFED</color>
-    <color name="nomad_sand">#FFF7F4EF</color>
-    <color name="nomad_danger">#FFB23A3A</color>
+    <color name="deep_navy">#FF0F172A</color>
+    <color name="midnight_blue">#FF1E3A8A</color>
+    <color name="emerald">#FF10B981</color>
+    <color name="sky_blue">#FF0EA5E9</color>
+    <color name="slate_gray">#FF64748B</color>
+    <color name="nomad_background">#FFF8FAFC</color>
+    <color name="nomad_surface">#FFFFFFFF</color>
     <color name="black">#FF000000</color>
     <color name="white">#FFFFFFFF</color>
-    <color name="ic_launcher_background">#FF0F6E6A</color>
+    <color name="ic_launcher_background">#FF0F172A</color>
 </resources>

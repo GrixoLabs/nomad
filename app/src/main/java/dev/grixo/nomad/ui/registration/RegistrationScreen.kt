@@ -20,6 +20,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.MaterialTheme
@@ -37,13 +38,15 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.grixo.nomad.R
 import dev.grixo.nomad.domain.model.Gender
-import dev.grixo.nomad.ui.theme.NomadMist
-import dev.grixo.nomad.ui.theme.NomadSand
-import dev.grixo.nomad.ui.theme.NomadTealSoft
+import dev.grixo.nomad.ui.components.BrandLogo
+import dev.grixo.nomad.ui.theme.DeepNavy
+import dev.grixo.nomad.ui.theme.MidnightBlue
+import dev.grixo.nomad.ui.theme.NomadBackground
+import dev.grixo.nomad.ui.theme.NomadSurfaceSoft
 
 @Composable
 fun RegistrationRoute(
@@ -79,10 +82,12 @@ fun RegistrationScreen(
     onSkip: () -> Unit
 ) {
     val fieldColors = OutlinedTextFieldDefaults.colors(
-        focusedBorderColor = MaterialTheme.colorScheme.primary,
+        focusedBorderColor = MidnightBlue,
         unfocusedBorderColor = MaterialTheme.colorScheme.outline,
         focusedContainerColor = MaterialTheme.colorScheme.surface,
-        unfocusedContainerColor = MaterialTheme.colorScheme.surface
+        unfocusedContainerColor = MaterialTheme.colorScheme.surface,
+        focusedLabelColor = MidnightBlue,
+        cursorColor = MidnightBlue
     )
 
     Box(
@@ -90,7 +95,7 @@ fun RegistrationScreen(
             .fillMaxSize()
             .background(
                 Brush.verticalGradient(
-                    listOf(NomadMist, NomadSand, NomadTealSoft.copy(alpha = 0.45f))
+                    listOf(NomadBackground, NomadSurfaceSoft, MidnightBlue.copy(alpha = 0.10f))
                 )
             )
     ) {
@@ -105,15 +110,12 @@ fun RegistrationScreen(
                 visible = true,
                 enter = fadeIn() + slideInVertically { it / 4 }
             ) {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(
-                        text = stringResource(R.string.app_name),
-                        style = MaterialTheme.typography.displayLarge,
-                        color = MaterialTheme.colorScheme.primary
-                    )
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    BrandLogo()
                     Text(
                         text = stringResource(R.string.registration_title),
-                        style = MaterialTheme.typography.headlineMedium
+                        style = MaterialTheme.typography.headlineMedium,
+                        color = DeepNavy
                     )
                     Text(
                         text = stringResource(R.string.registration_subtitle),
@@ -168,7 +170,8 @@ fun RegistrationScreen(
 
             Text(
                 text = stringResource(R.string.gender_label),
-                style = MaterialTheme.typography.titleMedium
+                style = MaterialTheme.typography.titleMedium,
+                color = DeepNavy
             )
             FlowRow(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -181,7 +184,7 @@ fun RegistrationScreen(
                         label = { Text(gender.label) },
                         colors = FilterChipDefaults.filterChipColors(
                             selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
-                            selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer
+                            selectedLabelColor = DeepNavy
                         )
                     )
                 }
@@ -207,7 +210,8 @@ fun RegistrationScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(52.dp),
-                shape = RoundedCornerShape(16.dp)
+                shape = RoundedCornerShape(16.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = MidnightBlue)
             ) {
                 Text(stringResource(R.string.register_cta))
             }
@@ -217,7 +221,7 @@ fun RegistrationScreen(
                 enabled = !state.isSubmitting,
                 modifier = Modifier.align(Alignment.CenterHorizontally)
             ) {
-                Text(stringResource(R.string.skip_cta))
+                Text(stringResource(R.string.skip_cta), color = MidnightBlue)
             }
 
             Text(
