@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from uuid import UUID
 
 from fastapi import HTTPException
@@ -99,9 +99,13 @@ class HistoryService:
         )
 
     def get_history(
-        self, db: Session, device_uuid: UUID, days: int
+        self,
+        db: Session,
+        device_uuid: UUID,
+        days: int,
+        start_date: date | None = None,
+        end_date: date | None = None,
     ) -> HistoryResponse:
-        days = max(1, min(int(days), 14))
         device = self.devices.get_by_uuid(db, device_uuid)
         if not device:
             raise HTTPException(status_code=404, detail="Device not registered")
@@ -109,8 +113,32 @@ class HistoryService:
         # Refresh map_plotter from new signals / journals.
         self.plotter.sync_device(db, device.device_id)
 
-        since = datetime.now(timezone.utc) - timedelta(days=days)
-        plots = self.plotter.plots_for_device(db, device.device_id, since=since)
+        now = datetime.now(timezone.utc)
+        earliest = now - timedelta(days=90)
+        if start_date is not None and end_date is not None:
+            start = datetime.combine(start_date, time.min, tzinfo=timezone.utc)
+            end = datetime.combine(end_date, time.max, tzinfo=timezone.utc)
+            if end < start:
+                start, end = end, start
+            if start < earliest:
+                start = earliest
+            if end > now:
+                end = now
+            if (end - start) > timedelta(days=90):
+                start = end - timedelta(days=90)
+            since = start
+            until = end
+            days = max(1, (until.date() - since.date()).days + 1)
+        else:
+            days = max(1, min(int(days), 90))
+            since = now - timedelta(days=days)
+            until = now
+
+        plots = [
+            p
+            for p in self.plotter.plots_for_device(db, device.device_id, since=since)
+            if p.last_gps_timestamp <= until
+        ]
 
         journals = list(
             db.scalars(
@@ -118,6 +146,7 @@ class HistoryService:
                 .where(
                     JournalEntry.device_id == device.device_id,
                     JournalEntry.created_at >= since,
+                    JournalEntry.created_at <= until,
                 )
                 .order_by(JournalEntry.created_at.asc())
             ).all()
