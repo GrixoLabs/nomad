@@ -4,6 +4,7 @@ import dev.grixo.nomad.data.datastore.PreferenceManager
 import dev.grixo.nomad.data.network.NomadApi
 import dev.grixo.nomad.data.network.model.DeviceRegistrationRequest
 import dev.grixo.nomad.domain.repository.DeviceRepository
+import dev.grixo.nomad.utils.AuthErrorMapper
 import dev.grixo.nomad.utils.DeviceHelper
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
@@ -52,10 +53,14 @@ class DeviceRepositoryImpl @Inject constructor(
                 preferenceManager.saveDeviceId(deviceId)
                 Result.success(deviceId)
             } else {
-                Result.failure(Exception("Registration failed: ${response.code()}"))
+                Result.failure(
+                    IllegalStateException(
+                        AuthErrorMapper.fromResponse(response, "Device registration failed")
+                    )
+                )
             }
         } catch (e: Exception) {
-            Result.failure(e)
+            Result.failure(IllegalStateException(AuthErrorMapper.friendlyNetworkMessage(e), e))
         }
     }
 }

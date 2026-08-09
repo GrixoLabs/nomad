@@ -14,6 +14,8 @@ import dev.grixo.nomad.domain.model.Gender
 import dev.grixo.nomad.domain.model.OnboardingStatus
 import dev.grixo.nomad.domain.model.UserProfile
 import dev.grixo.nomad.domain.repository.UserRepository
+import dev.grixo.nomad.utils.AuthErrorMapper
+import dev.grixo.nomad.utils.PhoneNormalizer
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import javax.inject.Inject
@@ -39,8 +41,8 @@ class UserRepositoryImpl @Inject constructor(
     override fun observeJournalEnabled(): Flow<Boolean> = preferenceManager.journalEnabled
 
     override suspend fun startRegistration(profile: UserProfile, password: String): Result<Unit> {
-        val email = profile.email?.trim()?.takeIf { it.isNotEmpty() }
-        val phone = profile.phone?.trim()?.takeIf { it.isNotEmpty() }
+        val email = profile.email?.trim()?.lowercase()?.takeIf { it.isNotEmpty() }
+        val phone = PhoneNormalizer.normalize(profile.phone)
         if (email == null && phone == null) {
             return Result.failure(IllegalArgumentException("Email or phone is required"))
         }
@@ -56,6 +58,9 @@ class UserRepositoryImpl @Inject constructor(
 
         val deviceUuid = preferenceManager.deviceUuid.first()
         return try {
+            // Backend /auth/register creates the pending user and sends OTP in one shot.
+            // Do not call send-*-otp again here — that would send a second code and
+            // previously left a confusing "account created but OTP failed" state.
             val response = api.authRegister(
                 AuthRegisterRequest(
                     name = profile.name.trim(),
@@ -69,28 +74,22 @@ class UserRepositoryImpl @Inject constructor(
                 )
             )
             if (!response.isSuccessful) {
-                val detail = response.errorBody()?.string()?.take(200)
                 return Result.failure(
-                    IllegalStateException(detail ?: "Registration failed (${response.code()})")
+                    IllegalStateException(
+                        AuthErrorMapper.fromResponse(response, "Registration failed")
+                    )
                 )
             }
 
-            pendingProfile = profile.copy(email = email, phone = phone, name = profile.name.trim())
+            pendingProfile = profile.copy(
+                email = email,
+                phone = phone,
+                name = profile.name.trim()
+            )
             pendingChannel = if (email != null) "email" else "phone"
-
-            val otpSent = if (email != null) {
-                api.sendEmailOtp(SendEmailOtpRequest(email))
-            } else {
-                api.sendSmsOtp(SendSmsOtpRequest(phone!!))
-            }
-            if (!otpSent.isSuccessful) {
-                return Result.failure(
-                    IllegalStateException("Account created but OTP send failed (${otpSent.code()})")
-                )
-            }
             Result.success(Unit)
         } catch (e: Exception) {
-            Result.failure(e)
+            Result.failure(IllegalStateException(AuthErrorMapper.friendlyNetworkMessage(e), e))
         }
     }
 
@@ -113,15 +112,18 @@ class UserRepositoryImpl @Inject constructor(
             }
             if (!response.isSuccessful) {
                 return Result.failure(
-                    IllegalStateException("Invalid or expired code (${response.code()})")
+                    IllegalStateException(
+                        AuthErrorMapper.fromResponse(response, "Invalid or expired code")
+                    )
                 )
             }
+            // Local REGISTERED status only after OTP succeeds — never on failed register.
             preferenceManager.saveUserProfile(profile, journalEnabled = true)
             pendingProfile = null
             pendingChannel = null
             Result.success(Unit)
         } catch (e: Exception) {
-            Result.failure(e)
+            Result.failure(IllegalStateException(AuthErrorMapper.friendlyNetworkMessage(e), e))
         }
     }
 
@@ -135,15 +137,19 @@ class UserRepositoryImpl @Inject constructor(
                 else -> return Result.failure(IllegalStateException("No pending registration"))
             }
             if (response.isSuccessful) Result.success(Unit)
-            else Result.failure(IllegalStateException("Could not resend code (${response.code()})"))
+            else Result.failure(
+                IllegalStateException(
+                    AuthErrorMapper.fromResponse(response, "Could not resend code")
+                )
+            )
         } catch (e: Exception) {
-            Result.failure(e)
+            Result.failure(IllegalStateException(AuthErrorMapper.friendlyNetworkMessage(e), e))
         }
     }
 
     override suspend fun login(email: String?, phone: String?, password: String): Result<Unit> {
         val cleanEmail = email?.trim()?.lowercase()?.takeIf { it.isNotEmpty() }
-        val cleanPhone = phone?.trim()?.takeIf { it.isNotEmpty() }
+        val cleanPhone = PhoneNormalizer.normalize(phone)
         if (cleanEmail == null && cleanPhone == null) {
             return Result.failure(IllegalArgumentException("Email or phone is required"))
         }
@@ -160,9 +166,10 @@ class UserRepositoryImpl @Inject constructor(
             )
             val body = response.body()
             if (!response.isSuccessful || body == null) {
-                val detail = response.errorBody()?.string()?.take(200)
                 return Result.failure(
-                    IllegalStateException(detail ?: "Sign in failed (${response.code()})")
+                    IllegalStateException(
+                        AuthErrorMapper.fromResponse(response, "Sign in failed")
+                    )
                 )
             }
             val profile = UserProfile(
@@ -176,13 +183,13 @@ class UserRepositoryImpl @Inject constructor(
             preferenceManager.saveUserProfile(profile, journalEnabled = body.journal_enabled)
             Result.success(Unit)
         } catch (e: Exception) {
-            Result.failure(e)
+            Result.failure(IllegalStateException(AuthErrorMapper.friendlyNetworkMessage(e), e))
         }
     }
 
     override suspend fun forgotPassword(email: String?, phone: String?): Result<Unit> {
         val cleanEmail = email?.trim()?.lowercase()?.takeIf { it.isNotEmpty() }
-        val cleanPhone = phone?.trim()?.takeIf { it.isNotEmpty() }
+        val cleanPhone = PhoneNormalizer.normalize(phone)
         if (cleanEmail == null && cleanPhone == null) {
             return Result.failure(IllegalArgumentException("Email or phone is required"))
         }
@@ -192,10 +199,12 @@ class UserRepositoryImpl @Inject constructor(
             )
             if (response.isSuccessful) Result.success(Unit)
             else Result.failure(
-                IllegalStateException("Could not send reset code (${response.code()})")
+                IllegalStateException(
+                    AuthErrorMapper.fromResponse(response, "Could not send reset code")
+                )
             )
         } catch (e: Exception) {
-            Result.failure(e)
+            Result.failure(IllegalStateException(AuthErrorMapper.friendlyNetworkMessage(e), e))
         }
     }
 
@@ -206,7 +215,7 @@ class UserRepositoryImpl @Inject constructor(
         newPassword: String
     ): Result<Unit> {
         val cleanEmail = email?.trim()?.lowercase()?.takeIf { it.isNotEmpty() }
-        val cleanPhone = phone?.trim()?.takeIf { it.isNotEmpty() }
+        val cleanPhone = PhoneNormalizer.normalize(phone)
         if (cleanEmail == null && cleanPhone == null) {
             return Result.failure(IllegalArgumentException("Email or phone is required"))
         }
@@ -228,13 +237,14 @@ class UserRepositoryImpl @Inject constructor(
             )
             if (response.isSuccessful) Result.success(Unit)
             else {
-                val detail = response.errorBody()?.string()?.take(200)
                 Result.failure(
-                    IllegalStateException(detail ?: "Reset failed (${response.code()})")
+                    IllegalStateException(
+                        AuthErrorMapper.fromResponse(response, "Reset failed")
+                    )
                 )
             }
         } catch (e: Exception) {
-            Result.failure(e)
+            Result.failure(IllegalStateException(AuthErrorMapper.friendlyNetworkMessage(e), e))
         }
     }
 

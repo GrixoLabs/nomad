@@ -7,9 +7,12 @@ import dev.grixo.nomad.domain.model.Gender
 import dev.grixo.nomad.domain.model.UserProfile
 import dev.grixo.nomad.domain.repository.DeviceRepository
 import dev.grixo.nomad.domain.repository.UserRepository
+import dev.grixo.nomad.utils.AuthErrorMapper
+import dev.grixo.nomad.utils.PhoneNormalizer
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -124,12 +127,13 @@ class RegistrationViewModel @Inject constructor(
     fun submitProfile() {
         val state = _uiState.value
         val email = state.email.trim().takeIf { it.isNotEmpty() }
-        val phone = state.phone.trim().takeIf { it.isNotEmpty() }
+        val phone = PhoneNormalizer.normalize(state.phone)
         val age = state.age.toIntOrNull()
 
         val error = when {
             state.name.isBlank() -> "Name is required"
             email == null && phone == null -> "Add an email or phone number"
+            state.phone.isNotBlank() && phone == null -> "Enter a valid phone number"
             age == null || age !in 13..120 -> "Enter an age between 13 and 120"
             state.password.length < 8 -> "Password must be at least 8 characters"
             state.password != state.confirmPassword -> "Passwords do not match"
@@ -143,6 +147,21 @@ class RegistrationViewModel @Inject constructor(
         viewModelScope.launch {
             _uiState.update { it.copy(isSubmitting = true, errorMessage = null, infoMessage = null) }
             deviceRepository.initializeDevice()
+            // Fail fast only when we still lack a server device_id (e.g. DNS / offline).
+            if (deviceRepository.getDeviceId().first() == null) {
+                val deviceResult = deviceRepository.registerDevice()
+                if (deviceResult.isFailure) {
+                    val cause = deviceResult.exceptionOrNull()
+                    _uiState.update {
+                        it.copy(
+                            isSubmitting = false,
+                            errorMessage = cause?.let(AuthErrorMapper::friendlyNetworkMessage)
+                                ?: "Could not reach Nomad servers. Try again."
+                        )
+                    }
+                    return@launch
+                }
+            }
             val result = userRepository.startRegistration(
                 profile = UserProfile(
                     name = state.name.trim(),
@@ -329,8 +348,7 @@ class RegistrationViewModel @Inject constructor(
             return if (trimmed.contains('@')) {
                 trimmed.lowercase() to null
             } else {
-                val phone = trimmed.filter { it.isDigit() || it == '+' }
-                null to phone.takeIf { it.length >= 8 }
+                null to PhoneNormalizer.normalize(trimmed)
             }
         }
     }
