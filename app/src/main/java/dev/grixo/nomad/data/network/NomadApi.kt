@@ -97,7 +97,9 @@ interface NomadApi {
     @GET("api/v1/history")
     suspend fun getHistory(
         @Query("device_uuid") deviceUuid: String,
-        @Query("days") days: Int
+        @Query("days") days: Int = 7,
+        @Query("start_date") startDate: String? = null,
+        @Query("end_date") endDate: String? = null
     ): Response<HistoryResponse>
 
     companion object {

@@ -220,24 +220,38 @@ fun MainScreen(
                 .padding(horizontal = 24.dp, vertical = 36.dp),
             verticalArrangement = Arrangement.spacedBy(18.dp)
         ) {
-            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text(
-                    text = stringResource(R.string.app_name).uppercase(),
-                    style = MaterialTheme.typography.displayLarge,
-                    color = colors.onBackground
-                )
-                Text(
-                    text = stringResource(R.string.tagline),
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = colors.onSurfaceVariant
-                )
-                if (state.userName != null) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.Top
+            ) {
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
                     Text(
-                        text = "Welcome, ${state.userName}",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = colors.onSurface
+                        text = stringResource(R.string.app_name).uppercase(),
+                        style = MaterialTheme.typography.displayLarge,
+                        color = colors.onBackground
                     )
+                    Text(
+                        text = stringResource(R.string.tagline),
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = colors.onSurfaceVariant
+                    )
+                    if (state.userName != null) {
+                        Text(
+                            text = "Welcome, ${state.userName}",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = colors.onSurface
+                        )
+                    }
                 }
+                BrandLogo(
+                    modifier = Modifier
+                        .padding(start = 8.dp)
+                        .height(56.dp)
+                        .widthIn(max = 140.dp)
+                )
             }
 
             SoftPanel {
@@ -248,24 +262,11 @@ fun MainScreen(
             }
 
             SoftPanel {
-                Box(modifier = Modifier.fillMaxWidth()) {
-                    Column(
-                        modifier = Modifier
-                            .align(Alignment.TopStart)
-                            .padding(end = 140.dp)
-                    ) {
-                        TextButton(
-                            onClick = {
-                                when {
-                                    state.showNearby -> onHideNearby()
-                                    !state.isRegistered -> onOpenRegister()
-                                    else -> onOpenHistory()
-                                }
-                            },
-                            contentPadding = PaddingValues(0.dp)
-                        ) {
-                            Text("← Back", color = colors.primary)
-                        }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.Top
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
                         Text(
                             "Tracking",
                             style = MaterialTheme.typography.titleLarge,
@@ -279,12 +280,14 @@ fun MainScreen(
                             fontWeight = FontWeight.SemiBold
                         )
                     }
-                    BrandLogo(
-                        modifier = Modifier
-                            .align(Alignment.TopEnd)
-                            .height(56.dp)
-                            .widthIn(max = 160.dp)
-                    )
+                    OutlinedButton(
+                        onClick = onOpenHistory,
+                        enabled = state.isRegistered,
+                        shape = RoundedCornerShape(12.dp),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                    ) {
+                        Text("Travel History", style = MaterialTheme.typography.labelLarge)
+                    }
                 }
                 Spacer(modifier = Modifier.height(8.dp))
                 InfoRow(
@@ -327,6 +330,23 @@ fun MainScreen(
                 }
 
                 Spacer(modifier = Modifier.height(12.dp))
+                Button(
+                    onClick = onOpenJournal,
+                    enabled = state.isRegistered && state.journalEnabled,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(48.dp),
+                    shape = RoundedCornerShape(14.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = colors.secondary,
+                        contentColor = colors.onSecondary,
+                        disabledContainerColor = colors.surfaceVariant,
+                        disabledContentColor = colors.onSurfaceVariant
+                    )
+                ) {
+                    Text("Journal", fontWeight = FontWeight.SemiBold)
+                }
+                Spacer(modifier = Modifier.height(8.dp))
                 Button(
                     onClick = onNearby,
                     enabled = state.latitude != null && state.longitude != null && !state.nearbyLoading,
@@ -435,42 +455,20 @@ fun MainScreen(
                 }
             }
 
-            SoftPanel {
-                Text(
-                    text = stringResource(R.string.journal_title),
-                    style = MaterialTheme.typography.titleLarge,
-                    color = colors.onSurface
-                )
-                Spacer(modifier = Modifier.height(6.dp))
-                Text(
-                    text = if (state.isRegistered && state.journalEnabled) {
-                        stringResource(R.string.journal_hint)
-                    } else {
-                        stringResource(R.string.journal_locked_body)
-                    },
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = colors.onSurfaceVariant
-                )
-                Spacer(modifier = Modifier.height(10.dp))
-                if (state.isRegistered) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Button(
-                            onClick = onOpenJournal,
-                            enabled = state.journalEnabled,
-                            modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(14.dp),
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = colors.secondary,
-                                contentColor = colors.onSecondary
-                            )
-                        ) { Text("Write") }
-                        OutlinedButton(
-                            onClick = onOpenHistory,
-                            modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(14.dp)
-                        ) { Text("History map") }
-                    }
-                } else {
+            if (!state.isRegistered) {
+                SoftPanel {
+                    Text(
+                        text = stringResource(R.string.journal_title),
+                        style = MaterialTheme.typography.titleLarge,
+                        color = colors.onSurface
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = stringResource(R.string.journal_locked_body),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = colors.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(10.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Button(
                             onClick = onOpenRegister,

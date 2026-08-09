@@ -62,11 +62,20 @@ class JournalRepositoryImpl @Inject constructor(
         }
     }
 
-    override suspend fun loadHistory(days: Int): Result<HistoryResponse> {
+    override suspend fun loadHistory(
+        days: Int,
+        startDate: String?,
+        endDate: String?
+    ): Result<HistoryResponse> {
         val deviceUuid = preferenceManager.deviceUuid.first()
             ?: return Result.failure(IllegalStateException("Device not ready"))
         return try {
-            val response = api.getHistory(deviceUuid, days.coerceIn(1, 14))
+            val response = api.getHistory(
+                deviceUuid = deviceUuid,
+                days = days.coerceIn(1, 90),
+                startDate = startDate,
+                endDate = endDate
+            )
             val payload = response.body()
             if (response.isSuccessful && payload != null) Result.success(payload)
             else Result.failure(IllegalStateException("History failed (${response.code()})"))

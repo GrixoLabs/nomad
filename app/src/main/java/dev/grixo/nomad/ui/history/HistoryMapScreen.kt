@@ -18,12 +18,18 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DatePicker
+import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.SelectableDates
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -43,6 +49,10 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.grixo.nomad.data.network.model.HistoryResponse
+import java.time.Instant
+import java.time.LocalDate
+import java.time.ZoneOffset
+import java.time.format.DateTimeFormatter
 import org.maplibre.android.camera.CameraUpdateFactory
 import org.maplibre.android.geometry.LatLng
 import org.maplibre.android.geometry.LatLngBounds
@@ -69,6 +79,7 @@ fun HistoryMapRoute(
     HistoryMapScreen(
         state = state,
         onDaysChange = viewModel::setDays,
+        onDateRangeChange = viewModel::setDateRange,
         onClose = onClose,
         onRefresh = viewModel::reload,
         onDismissDetail = viewModel::dismissDetail,
@@ -84,6 +95,7 @@ fun HistoryMapRoute(
 fun HistoryMapScreen(
     state: HistoryMapUiState,
     onDaysChange: (Int) -> Unit,
+    onDateRangeChange: (LocalDate, LocalDate) -> Unit,
     onClose: () -> Unit,
     onRefresh: () -> Unit,
     onDismissDetail: () -> Unit,
@@ -93,6 +105,14 @@ fun HistoryMapScreen(
     onNextJournal: () -> Unit
 ) {
     val colors = MaterialTheme.colorScheme
+    val today = remember { LocalDate.now() }
+    val earliest = remember(today) { today.minusDays(89) }
+    val dateLabel = DateTimeFormatter.ISO_LOCAL_DATE
+    var pickingStart by remember { mutableStateOf(false) }
+    var pickingEnd by remember { mutableStateOf(false) }
+    var draftStart by remember { mutableStateOf(state.startDate ?: today.minusDays(6)) }
+    var draftEnd by remember { mutableStateOf(state.endDate ?: today) }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -108,7 +128,7 @@ fun HistoryMapScreen(
                 Text("← Back", color = colors.primary)
             }
             Text(
-                "History map",
+                "Travel History",
                 style = MaterialTheme.typography.titleLarge,
                 color = colors.onBackground,
                 modifier = Modifier.weight(1f)
@@ -116,16 +136,79 @@ fun HistoryMapScreen(
         }
 
         Row(
-            modifier = Modifier.padding(horizontal = 16.dp),
+            modifier = Modifier
+                .padding(horizontal = 16.dp)
+                .horizontalScroll(rememberScrollState()),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            listOf(1, 3, 7, 14).forEach { d ->
+            listOf(7, 14, 30, 90).forEach { d ->
                 FilterChip(
-                    selected = state.days == d,
+                    selected = state.startDate == null && state.endDate == null && state.days == d,
                     onClick = { onDaysChange(d) },
                     label = { Text("${d}d") }
                 )
             }
+        }
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 6.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            OutlinedButton(
+                onClick = {
+                    draftStart = state.startDate ?: today.minusDays((state.days - 1).toLong())
+                    pickingStart = true
+                },
+                modifier = Modifier.weight(1f)
+            ) {
+                Text(
+                    "From " + (state.startDate ?: today.minusDays((state.days - 1).toLong()))
+                        .format(dateLabel),
+                    maxLines = 1
+                )
+            }
+            OutlinedButton(
+                onClick = {
+                    draftEnd = state.endDate ?: today
+                    pickingEnd = true
+                },
+                modifier = Modifier.weight(1f)
+            ) {
+                Text(
+                    "To " + (state.endDate ?: today).format(dateLabel),
+                    maxLines = 1
+                )
+            }
+        }
+
+        if (pickingStart) {
+            HistoryDatePickerDialog(
+                initial = draftStart,
+                minDate = earliest,
+                maxDate = draftEnd.coerceAtMost(today),
+                onDismiss = { pickingStart = false },
+                onConfirm = { picked ->
+                    draftStart = picked
+                    pickingStart = false
+                    onDateRangeChange(picked, draftEnd.coerceAtLeast(picked))
+                }
+            )
+        }
+        if (pickingEnd) {
+            HistoryDatePickerDialog(
+                initial = draftEnd,
+                minDate = draftStart.coerceAtLeast(earliest),
+                maxDate = today,
+                onDismiss = { pickingEnd = false },
+                onConfirm = { picked ->
+                    draftEnd = picked
+                    pickingEnd = false
+                    onDateRangeChange(draftStart.coerceAtMost(picked), picked)
+                }
+            )
         }
 
         PullToRefreshBox(
@@ -501,6 +584,45 @@ private fun handleMapClick(
         return true
     }
     return false
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun HistoryDatePickerDialog(
+    initial: LocalDate,
+    minDate: LocalDate,
+    maxDate: LocalDate,
+    onDismiss: () -> Unit,
+    onConfirm: (LocalDate) -> Unit
+) {
+    val initialMillis = initial.atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli()
+    val minMillis = minDate.atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli()
+    val maxMillis = maxDate.atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli()
+    val pickerState = rememberDatePickerState(
+        initialSelectedDateMillis = initialMillis.coerceIn(minMillis, maxMillis),
+        selectableDates = object : SelectableDates {
+            override fun isSelectableDate(utcTimeMillis: Long): Boolean {
+                return utcTimeMillis in minMillis..maxMillis
+            }
+        }
+    )
+    DatePickerDialog(
+        onDismissRequest = onDismiss,
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    val millis = pickerState.selectedDateMillis ?: return@TextButton
+                    val date = Instant.ofEpochMilli(millis).atZone(ZoneOffset.UTC).toLocalDate()
+                    onConfirm(date)
+                }
+            ) { Text("OK") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        }
+    ) {
+        DatePicker(state = pickerState)
+    }
 }
 
 private const val SOURCE_TRACKS = "nomad-tracks"

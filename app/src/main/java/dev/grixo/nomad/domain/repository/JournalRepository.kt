@@ -14,6 +14,10 @@ interface JournalRepository {
         placeLabel: String?
     ): Result<JournalEntryResponse>
 
-    suspend fun loadHistory(days: Int): Result<HistoryResponse>
+    suspend fun loadHistory(
+        days: Int,
+        startDate: String? = null,
+        endDate: String? = null
+    ): Result<HistoryResponse>
     suspend fun loadMapConfig(): Result<MapConfigResponse>
 }

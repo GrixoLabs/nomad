@@ -7,15 +7,20 @@ import dev.grixo.nomad.data.network.model.HistoryResponse
 import dev.grixo.nomad.data.network.model.JournalEntryResponse
 import dev.grixo.nomad.data.network.model.PlotPointResponse
 import dev.grixo.nomad.domain.repository.JournalRepository
+import java.time.LocalDate
+import java.time.format.DateTimeFormatter
+import java.time.temporal.ChronoUnit
+import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import javax.inject.Inject
 
 data class HistoryMapUiState(
     val days: Int = 7,
+    val startDate: LocalDate? = null,
+    val endDate: LocalDate? = null,
     val loading: Boolean = true,
     val styleUrl: String? = null,
     val tileUrlTemplate: String? = null,
@@ -42,7 +47,32 @@ class HistoryMapViewModel @Inject constructor(
     }
 
     fun setDays(days: Int) {
-        _uiState.update { it.copy(days = days.coerceIn(1, 14)) }
+        _uiState.update {
+            it.copy(
+                days = days.coerceIn(1, 90),
+                startDate = null,
+                endDate = null
+            )
+        }
+        reload()
+    }
+
+    fun setDateRange(start: LocalDate, end: LocalDate) {
+        val today = LocalDate.now()
+        val earliest = today.minusDays(89)
+        var from = if (start.isBefore(end)) start else end
+        var to = if (start.isBefore(end)) end else start
+        if (from.isBefore(earliest)) from = earliest
+        if (to.isAfter(today)) to = today
+        if (from.isAfter(to)) from = to
+        val span = ChronoUnit.DAYS.between(from, to).toInt().coerceAtLeast(0) + 1
+        _uiState.update {
+            it.copy(
+                startDate = from,
+                endDate = to,
+                days = span.coerceIn(1, 90)
+            )
+        }
         reload()
     }
 
@@ -68,9 +98,6 @@ class HistoryMapViewModel @Inject constructor(
         val history = _uiState.value.history ?: return
         val plot = history.plot_points.firstOrNull { p ->
             p.journals.any { it.entry_id == entryId }
-        } ?: history.plot_points.firstOrNull {
-            // fallback: match rounded cell via journal_pins
-            false
         }
         if (plot != null) {
             val idx = plot.journals.indexOfFirst { it.entry_id == entryId }.coerceAtLeast(0)
@@ -138,7 +165,13 @@ class HistoryMapViewModel @Inject constructor(
                 return@launch
             }
 
-            val historyResult = journalRepository.loadHistory(_uiState.value.days)
+            val state = _uiState.value
+            val formatter = DateTimeFormatter.ISO_LOCAL_DATE
+            val historyResult = journalRepository.loadHistory(
+                days = state.days,
+                startDate = state.startDate?.format(formatter),
+                endDate = state.endDate?.format(formatter)
+            )
             if (historyResult.isFailure) {
                 _uiState.update {
                     it.copy(
