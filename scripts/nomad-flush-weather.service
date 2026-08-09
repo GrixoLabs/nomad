@@ -1,0 +1,11 @@
+[Unit]
+Description=Flush Nomad weather_cache table
+After=network.target postgresql.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/nomad
+# Adjust User/paths to match your deploy layout.
+EnvironmentFile=-/opt/nomad/.env
+ExecStart=/opt/nomad/.venv/bin/python /opt/nomad/scripts/flush_weather_cache.py
+Nice=10
