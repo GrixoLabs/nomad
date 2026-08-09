@@ -12,6 +12,7 @@ import dev.grixo.nomad.utils.PhoneNormalizer
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -146,19 +147,20 @@ class RegistrationViewModel @Inject constructor(
         viewModelScope.launch {
             _uiState.update { it.copy(isSubmitting = true, errorMessage = null, infoMessage = null) }
             deviceRepository.initializeDevice()
-            // Fail fast if the device cannot be registered (e.g. DNS / offline).
-            // Do not proceed to /auth/register without a server device_id.
-            val deviceResult = deviceRepository.registerDevice()
-            if (deviceResult.isFailure) {
-                val cause = deviceResult.exceptionOrNull()
-                _uiState.update {
-                    it.copy(
-                        isSubmitting = false,
-                        errorMessage = cause?.let(AuthErrorMapper::friendlyNetworkMessage)
-                            ?: "Could not reach Nomad servers. Try again."
-                    )
+            // Fail fast only when we still lack a server device_id (e.g. DNS / offline).
+            if (deviceRepository.getDeviceId().first() == null) {
+                val deviceResult = deviceRepository.registerDevice()
+                if (deviceResult.isFailure) {
+                    val cause = deviceResult.exceptionOrNull()
+                    _uiState.update {
+                        it.copy(
+                            isSubmitting = false,
+                            errorMessage = cause?.let(AuthErrorMapper::friendlyNetworkMessage)
+                                ?: "Could not reach Nomad servers. Try again."
+                        )
+                    }
+                    return@launch
                 }
-                return@launch
             }
             val result = userRepository.startRegistration(
                 profile = UserProfile(
