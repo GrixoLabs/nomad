@@ -126,7 +126,7 @@ class RegistrationViewModel @Inject constructor(
 
     fun submitProfile() {
         val state = _uiState.value
-        val email = state.email.trim().takeIf { it.isNotEmpty() }
+        val email = state.email.trim().lowercase().takeIf { it.isNotEmpty() }
         val phone = PhoneNormalizer.normalize(state.phone)
         val age = state.age.toIntOrNull()
 
@@ -174,7 +174,10 @@ class RegistrationViewModel @Inject constructor(
             )
             _uiState.update {
                 if (result.isSuccess) {
+                    // Email is the OTP channel when both email and phone are provided.
                     val hint = when {
+                        email != null && phone != null ->
+                            "Code sent to $email (email is used when both are provided)"
                         email != null -> "Code sent to $email"
                         else -> "Code sent to $phone"
                     }
