@@ -306,40 +306,51 @@ private fun rasterStyleJson(tileUrl: String, attribution: String): String {
 private fun addHistoryLayers(style: Style, history: HistoryResponse) {
     if (style.getSource(SOURCE_TRACKS) == null) {
         style.addSource(GeoJsonSource(SOURCE_TRACKS, trackCollection(history)))
+        // Dark-blue path connecting plot points (>30 min dwell from API).
         style.addLayer(
             LineLayer(LAYER_PATH, SOURCE_TRACKS).withProperties(
-                PropertyFactory.lineColor(Color.parseColor("#1E3A8A")),
+                PropertyFactory.lineColor(Color.parseColor("#0B1F4A")),
                 PropertyFactory.lineWidth(3.5f),
-                PropertyFactory.lineOpacity(0.85f)
+                PropertyFactory.lineOpacity(0.95f)
             )
         )
     }
 
     if (style.getSource(SOURCE_PLOTS) == null) {
         style.addSource(GeoJsonSource(SOURCE_PLOTS, plotCollection(history)))
+        // Concentric marker: outer blue ring.
         style.addLayer(
-            CircleLayer(LAYER_PLOTS, SOURCE_PLOTS).withProperties(
-                PropertyFactory.circleRadius(7f),
-                PropertyFactory.circleColor(Color.parseColor("#2563EB")),
-                PropertyFactory.circleStrokeWidth(2f),
-                PropertyFactory.circleStrokeColor(Color.WHITE)
-            ).withFilter(
-                Expression.eq(Expression.get("night_stayed"), Expression.literal(false))
+            CircleLayer(LAYER_PLOT_RING, SOURCE_PLOTS).withProperties(
+                PropertyFactory.circleRadius(12f),
+                PropertyFactory.circleColor(Color.TRANSPARENT),
+                PropertyFactory.circleStrokeWidth(2.5f),
+                PropertyFactory.circleStrokeColor(Color.parseColor("#2563EB")),
+                PropertyFactory.circleOpacity(1f)
             )
         )
+        // Concentric marker: inner blue dot.
         style.addLayer(
+            CircleLayer(LAYER_PLOTS, SOURCE_PLOTS).withProperties(
+                PropertyFactory.circleRadius(4.5f),
+                PropertyFactory.circleColor(Color.parseColor("#1D4ED8")),
+                PropertyFactory.circleStrokeWidth(0f)
+            )
+        )
+        // Night stays keep a wider translucent ring under the concentric marker.
+        style.addLayerBelow(
             CircleLayer(LAYER_NIGHTS, SOURCE_PLOTS).withProperties(
-                PropertyFactory.circleRadius(12f),
-                PropertyFactory.circleColor(Color.parseColor("#661E3A8A")),
-                PropertyFactory.circleStrokeWidth(3f),
-                PropertyFactory.circleStrokeColor(Color.parseColor("#1E3A8A"))
+                PropertyFactory.circleRadius(18f),
+                PropertyFactory.circleColor(Color.parseColor("#331E3A8A")),
+                PropertyFactory.circleStrokeWidth(2f),
+                PropertyFactory.circleStrokeColor(Color.parseColor("#0B1F4A"))
             ).withFilter(
                 Expression.eq(Expression.get("night_stayed"), Expression.literal(true))
-            )
+            ),
+            LAYER_PLOT_RING
         )
         style.addLayer(
             CircleLayer(LAYER_JOURNALS, SOURCE_PLOTS).withProperties(
-                PropertyFactory.circleRadius(5f),
+                PropertyFactory.circleRadius(5.5f),
                 PropertyFactory.circleColor(Color.parseColor("#DC2626")),
                 PropertyFactory.circleStrokeWidth(2f),
                 PropertyFactory.circleStrokeColor(Color.WHITE)
@@ -410,7 +421,7 @@ private fun handleMapClick(
         journalFeature.getNumberProperty("plot_id")?.toLong()?.let(onPlotClick)
         return true
     }
-    val plotHits = map.queryRenderedFeatures(screen, LAYER_NIGHTS, LAYER_PLOTS)
+    val plotHits = map.queryRenderedFeatures(screen, LAYER_NIGHTS, LAYER_PLOT_RING, LAYER_PLOTS)
     plotHits.firstOrNull()?.getNumberProperty("plot_id")?.toLong()?.let {
         onPlotClick(it)
         return true
@@ -421,6 +432,7 @@ private fun handleMapClick(
 private const val SOURCE_TRACKS = "nomad-tracks"
 private const val SOURCE_PLOTS = "nomad-plots"
 private const val LAYER_PATH = "nomad-path"
-private const val LAYER_PLOTS = "nomad-plots-layer"
+private const val LAYER_PLOT_RING = "nomad-plots-ring"
+private const val LAYER_PLOTS = "nomad-plots-dot"
 private const val LAYER_JOURNALS = "nomad-journals-layer"
 private const val LAYER_NIGHTS = "nomad-nights-layer"
