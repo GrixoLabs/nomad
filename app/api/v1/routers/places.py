@@ -54,7 +54,7 @@ def nearby_places(
     except HTTPException:
         raise
     except Exception as exc:  # noqa: BLE001
-        raise HTTPException(status_code=504, detail=f"Nearby places failed: {exc}") from exc
+        raise HTTPException(status_code=502, detail=f"Nearby places failed: {exc}") from exc
 
 
 @router.post("/routes/compute", response_model=RouteResponse)

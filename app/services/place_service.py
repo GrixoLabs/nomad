@@ -30,17 +30,18 @@ WEATHER_CACHE_MAX_AGE = timedelta(hours=4)
 
 NEARBY_RADIUS_M = 25_000
 GOOGLE_PLACES_NEARBY_URL = "https://places.googleapis.com/v1/places:searchNearby"
-GOOGLE_POI_TYPES = (
+# Query one type per request (more reliable than a large includedTypes list).
+GOOGLE_POI_QUERY_TYPES = (
     "tourist_attraction",
     "museum",
-    "park",
+    "hindu_temple",
     "zoo",
     "amusement_park",
-    "aquarium",
+    "park",
     "art_gallery",
-    "hindu_temple",
     "church",
     "mosque",
+    "aquarium",
 )
 _NAME_STOPWORDS = (
     "zoological",
@@ -352,9 +353,46 @@ class PlaceService:
     def _fetch_google_places(self, lat: float, lon: float) -> list[dict[str, Any]]:
         """Famous / popular POIs within 25 km via Google Places Nearby Search (New)."""
         api_key = self.settings.google_api_key
+        if not api_key:
+            raise HTTPException(
+                status_code=503,
+                detail="GOOGLE_MAP_API is not configured on the server",
+            )
+
+        by_id: dict[str, dict[str, Any]] = {}
+        last_error: str | None = None
+        for place_type in GOOGLE_POI_QUERY_TYPES:
+            try:
+                batch = self._search_nearby_type(lat, lon, place_type, api_key)
+            except HTTPException as exc:
+                # Keep trying other types; remember the most recent failure detail.
+                last_error = str(exc.detail)
+                logger.warning("Google Places type=%s failed: %s", place_type, last_error)
+                continue
+            for item in batch:
+                existing = by_id.get(item["source_id"])
+                if existing is None or item["popularity_score"] > existing["popularity_score"]:
+                    by_id[item["source_id"]] = item
+
+        results = list(by_id.values())
+        if not results and last_error:
+            raise HTTPException(
+                status_code=502,
+                detail=(
+                    f"Google Places failed: {last_error}. "
+                    "If the key is Android-restricted, use a separate server key "
+                    "(IP / unrestricted) for GOOGLE_MAP_API."
+                ),
+            )
+        results.sort(key=lambda x: -x["popularity_score"])
+        return results
+
+    def _search_nearby_type(
+        self, lat: float, lon: float, place_type: str, api_key: str
+    ) -> list[dict[str, Any]]:
         body = {
-            "includedTypes": list(GOOGLE_POI_TYPES),
-            "maxResultCount": 20,
+            "includedTypes": [place_type],
+            "maxResultCount": 10,
             "rankPreference": "POPULARITY",
             "locationRestriction": {
                 "circle": {
@@ -373,15 +411,18 @@ class PlaceService:
         }
         with self._client() as client:
             resp = client.post(GOOGLE_PLACES_NEARBY_URL, json=body, headers=headers)
-            if resp.status_code >= 400:
-                logger.warning(
-                    "Google Places error status=%s body=%s",
-                    resp.status_code,
-                    resp.text[:400],
-                )
-                resp.raise_for_status()
-            payload = resp.json()
 
+        if resp.status_code >= 400:
+            detail = self._google_error_detail(resp)
+            logger.warning(
+                "Google Places error type=%s status=%s detail=%s",
+                place_type,
+                resp.status_code,
+                detail,
+            )
+            raise HTTPException(status_code=502, detail=detail)
+
+        payload = resp.json()
         results: list[dict[str, Any]] = []
         for place in payload.get("places") or []:
             display = place.get("displayName") or {}
@@ -396,9 +437,8 @@ class PlaceService:
             if haversine_m(lat, lon, elat, elon) > NEARBY_RADIUS_M:
                 continue
             types = [str(t) for t in (place.get("types") or []) if t]
-            category = next(
-                (t for t in types if t in GOOGLE_POI_TYPES),
-                types[0] if types else "tourist_attraction",
+            category = place_type if place_type in types else (
+                types[0] if types else place_type
             )
             place_id = str(place.get("id") or f"{elat:.5f},{elon:.5f}")
             rating = place.get("rating")
@@ -420,8 +460,23 @@ class PlaceService:
                     },
                 }
             )
-        results.sort(key=lambda x: -x["popularity_score"])
         return results
+
+    @staticmethod
+    def _google_error_detail(resp: httpx.Response) -> str:
+        try:
+            payload = resp.json()
+        except Exception:  # noqa: BLE001
+            text = (resp.text or "").strip()
+            return text[:300] or f"HTTP {resp.status_code}"
+        err = payload.get("error") if isinstance(payload, dict) else None
+        if isinstance(err, dict):
+            message = err.get("message") or err.get("status") or str(err)
+            status = err.get("status")
+            if status:
+                return f"{status}: {message}"
+            return str(message)[:300]
+        return str(payload)[:300]
 
     @staticmethod
     def _google_popularity_score(rating: Any, rating_count: Any) -> int:
