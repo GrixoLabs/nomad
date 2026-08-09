@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dev.grixo.nomad.data.location.LocationBus
+import dev.grixo.nomad.data.network.NomadApi
 import dev.grixo.nomad.data.network.model.HistoryResponse
 import dev.grixo.nomad.data.network.model.JournalEntryResponse
 import dev.grixo.nomad.domain.repository.JournalRepository
@@ -18,7 +19,6 @@ import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
@@ -29,7 +29,8 @@ data class JournalTableRow(
     /** Short preview for the list column. */
     val previewText: String,
     val fullBody: String,
-    val locationLabel: String,
+    /** Human place name from place_cache / place_label. */
+    val locationName: String,
     val latitude: Double,
     val longitude: Double,
     val startsDayGroup: Boolean
@@ -51,7 +52,8 @@ data class JournalUiState(
 @HiltViewModel
 class JournalViewModel @Inject constructor(
     private val journalRepository: JournalRepository,
-    private val locationBus: LocationBus
+    private val locationBus: LocationBus,
+    private val api: NomadApi
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(JournalUiState())
@@ -59,14 +61,14 @@ class JournalViewModel @Inject constructor(
 
     init {
         viewModelScope.launch {
-            val event = locationBus.events.firstOrNull()
-            if (event != null) {
+            locationBus.events.collect { event ->
                 _uiState.update {
                     it.copy(
                         latitude = event.latitude,
                         longitude = event.longitude
                     )
                 }
+                resolvePlaceLabel(event.latitude, event.longitude)
             }
         }
         loadEntries()
@@ -101,11 +103,13 @@ class JournalViewModel @Inject constructor(
         }
         viewModelScope.launch {
             _uiState.update { it.copy(saving = true, errorMessage = null) }
+            // Ensure we attach a place name from place_cache / resolve before save.
+            val placeName = state.placeLabel ?: resolvePlaceLabel(lat, lon)
             val result = journalRepository.createEntry(
                 body = state.body,
                 latitude = lat,
                 longitude = lon,
-                placeLabel = state.placeLabel
+                placeLabel = placeName
             )
             result.fold(
                 onSuccess = {
@@ -124,6 +128,27 @@ class JournalViewModel @Inject constructor(
                     }
                 }
             )
+        }
+    }
+
+    private suspend fun resolvePlaceLabel(lat: Double, lon: Double): String? {
+        return try {
+            val response = api.resolvePlace(lat, lon)
+            val body = response.body()
+            if (!response.isSuccessful || body == null) return null
+            val label = body.area_label
+                ?: listOfNotNull(body.locality, body.city, body.region, body.country)
+                    .distinct()
+                    .joinToString(", ")
+                    .ifBlank { body.display_name }
+            if (label.isNotBlank()) {
+                _uiState.update { it.copy(placeLabel = label) }
+                label
+            } else {
+                null
+            }
+        } catch (_: Exception) {
+            null
         }
     }
 
@@ -164,14 +189,13 @@ class JournalViewModel @Inject constructor(
                     parseCreatedAt(it.created_at).atZone(ZoneId.systemDefault()).toLocalDate()
                 }
                 val startsGroup = prevDate != date
-                val location = entry.place_label?.takeIf { it.isNotBlank() }
-                    ?: String.format(Locale.US, "%.5f, %.5f", entry.latitude, entry.longitude)
+                val name = entry.place_label?.takeIf { it.isNotBlank() } ?: "Unknown location"
                 JournalTableRow(
                     entryId = entry.entry_id,
                     dateTimeLabel = zoned.format(dateTimeFormatter),
                     previewText = preview(entry.body),
                     fullBody = entry.body,
-                    locationLabel = location,
+                    locationName = name,
                     latitude = entry.latitude,
                     longitude = entry.longitude,
                     startsDayGroup = startsGroup

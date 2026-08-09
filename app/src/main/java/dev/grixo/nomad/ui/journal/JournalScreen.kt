@@ -41,7 +41,6 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.grixo.nomad.R
-import java.util.Locale
 
 @Composable
 fun JournalRoute(
@@ -223,18 +222,7 @@ private fun JournalEntryDetailCard(
             )
             DetailField(
                 label = "Location",
-                value = buildString {
-                    append(entry.locationLabel)
-                    append('\n')
-                    append(
-                        String.format(
-                            Locale.US,
-                            "%.5f, %.5f",
-                            entry.latitude,
-                            entry.longitude
-                        )
-                    )
-                }
+                value = entry.locationName
             )
             DetailField(
                 label = "Entry",
