@@ -13,6 +13,7 @@ import java.time.OffsetDateTime
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.time.format.DateTimeParseException
+import java.util.Locale
 import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -23,10 +24,14 @@ import kotlinx.coroutines.launch
 
 data class JournalTableRow(
     val entryId: Long,
-    /** Calendar date for column 1; blank when continuing the same-day group. */
-    val dateLabel: String,
-    val entryText: String,
-    val showDate: Boolean,
+    /** Date + time for column 1. */
+    val dateTimeLabel: String,
+    /** Short preview for the list column. */
+    val previewText: String,
+    val fullBody: String,
+    val locationLabel: String,
+    val latitude: Double,
+    val longitude: Double,
     val startsDayGroup: Boolean
 )
 
@@ -38,6 +43,7 @@ data class JournalUiState(
     val saving: Boolean = false,
     val loadingEntries: Boolean = true,
     val entries: List<JournalTableRow> = emptyList(),
+    val selectedEntry: JournalTableRow? = null,
     val errorMessage: String? = null,
     val savedMessage: String? = null
 )
@@ -70,6 +76,15 @@ class JournalViewModel @Inject constructor(
         _uiState.update {
             it.copy(body = value.take(500), errorMessage = null, savedMessage = null)
         }
+    }
+
+    fun openEntry(entryId: Long) {
+        val entry = _uiState.value.entries.firstOrNull { it.entryId == entryId } ?: return
+        _uiState.update { it.copy(selectedEntry = entry) }
+    }
+
+    fun dismissEntry() {
+        _uiState.update { it.copy(selectedEntry = null) }
     }
 
     fun reloadEntries() {
@@ -121,12 +136,12 @@ class JournalViewModel @Inject constructor(
                     _uiState.update {
                         it.copy(
                             loadingEntries = false,
-                            entries = buildJournalTableRows(history)
+                            entries = buildJournalTableRows(history),
+                            selectedEntry = null
                         )
                     }
                 },
                 onFailure = {
-                    // Keep the write form usable even if the list fails to load.
                     _uiState.update { state -> state.copy(loadingEntries = false) }
                 }
             )
@@ -134,7 +149,8 @@ class JournalViewModel @Inject constructor(
     }
 
     companion object {
-        private val dateOnlyFormatter = DateTimeFormatter.ofPattern("dd MMM yyyy")
+        private val dateTimeFormatter =
+            DateTimeFormatter.ofPattern("dd MMM yyyy\nHH:mm", Locale.US)
 
         fun buildJournalTableRows(history: HistoryResponse): List<JournalTableRow> {
             val pins = collectJournals(history)
@@ -142,28 +158,31 @@ class JournalViewModel @Inject constructor(
             if (sorted.isEmpty()) return emptyList()
 
             return sorted.mapIndexed { index, entry ->
-                val date = parseCreatedAt(entry.created_at)
-                    .atZone(ZoneId.systemDefault())
-                    .toLocalDate()
+                val zoned = parseCreatedAt(entry.created_at).atZone(ZoneId.systemDefault())
+                val date = zoned.toLocalDate()
                 val prevDate = sorted.getOrNull(index - 1)?.let {
                     parseCreatedAt(it.created_at).atZone(ZoneId.systemDefault()).toLocalDate()
                 }
                 val startsGroup = prevDate != date
-                val text = buildString {
-                    entry.place_label?.takeIf { it.isNotBlank() }?.let { label ->
-                        append(label)
-                        append('\n')
-                    }
-                    append(entry.body)
-                }
+                val location = entry.place_label?.takeIf { it.isNotBlank() }
+                    ?: String.format(Locale.US, "%.5f, %.5f", entry.latitude, entry.longitude)
                 JournalTableRow(
                     entryId = entry.entry_id,
-                    dateLabel = if (startsGroup) date.format(dateOnlyFormatter) else "",
-                    entryText = text,
-                    showDate = startsGroup,
+                    dateTimeLabel = zoned.format(dateTimeFormatter),
+                    previewText = preview(entry.body),
+                    fullBody = entry.body,
+                    locationLabel = location,
+                    latitude = entry.latitude,
+                    longitude = entry.longitude,
                     startsDayGroup = startsGroup
                 )
             }
+        }
+
+        private fun preview(body: String, maxChars: Int = 90): String {
+            val trimmed = body.trim().replace('\n', ' ')
+            return if (trimmed.length <= maxChars) trimmed
+            else trimmed.take(maxChars - 1).trimEnd() + "…"
         }
 
         private fun collectJournals(history: HistoryResponse): List<JournalEntryResponse> {

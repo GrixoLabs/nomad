@@ -3,6 +3,7 @@ package dev.grixo.nomad.ui.journal
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -12,10 +13,13 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -32,10 +36,12 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.grixo.nomad.R
+import java.util.Locale
 
 @Composable
 fun JournalRoute(
@@ -43,11 +49,19 @@ fun JournalRoute(
     viewModel: JournalViewModel = hiltViewModel()
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
-    BackHandler(onBack = onClose)
+    BackHandler(onBack = {
+        if (state.selectedEntry != null) {
+            viewModel.dismissEntry()
+        } else {
+            onClose()
+        }
+    })
     JournalScreen(
         state = state,
         onBodyChange = viewModel::onBodyChange,
         onSave = viewModel::save,
+        onOpenEntry = viewModel::openEntry,
+        onDismissEntry = viewModel::dismissEntry,
         onClose = onClose
     )
 }
@@ -57,9 +71,20 @@ fun JournalScreen(
     state: JournalUiState,
     onBodyChange: (String) -> Unit,
     onSave: () -> Unit,
+    onOpenEntry: (Long) -> Unit,
+    onDismissEntry: () -> Unit,
     onClose: () -> Unit
 ) {
     val colors = MaterialTheme.colorScheme
+    val selected = state.selectedEntry
+
+    if (selected != null) {
+        JournalEntryDetailCard(
+            entry = selected,
+            onBack = onDismissEntry
+        )
+        return
+    }
 
     LazyColumn(
         modifier = Modifier
@@ -73,10 +98,7 @@ fun JournalScreen(
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         item {
-            TextButton(
-                onClick = onClose,
-                modifier = Modifier
-            ) {
+            TextButton(onClick = onClose) {
                 Text("← Back", color = colors.primary)
             }
         }
@@ -147,16 +169,107 @@ fun JournalScreen(
         item {
             JournalEntriesTable(
                 rows = state.entries,
-                loading = state.loadingEntries
+                loading = state.loadingEntries,
+                onRowClick = onOpenEntry
             )
         }
     }
 }
 
 @Composable
+private fun JournalEntryDetailCard(
+    entry: JournalTableRow,
+    onBack: () -> Unit
+) {
+    val colors = MaterialTheme.colorScheme
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(
+                Brush.verticalGradient(
+                    listOf(colors.background, colors.surfaceVariant.copy(alpha = 0.5f))
+                )
+            )
+            .padding(horizontal = 24.dp, vertical = 16.dp)
+    ) {
+        TextButton(
+            onClick = onBack,
+            modifier = Modifier.align(Alignment.Start)
+        ) {
+            Text("← Back", color = colors.primary)
+        }
+
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f)
+                .clip(RoundedCornerShape(18.dp))
+                .border(1.dp, colors.outline.copy(alpha = 0.35f), RoundedCornerShape(18.dp))
+                .background(colors.surface)
+                .padding(18.dp)
+                .verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            Text(
+                "Journal entry",
+                style = MaterialTheme.typography.titleLarge,
+                color = colors.onSurface,
+                fontWeight = FontWeight.SemiBold
+            )
+
+            DetailField(
+                label = "Date & time",
+                value = entry.dateTimeLabel.replace('\n', ' ')
+            )
+            DetailField(
+                label = "Location",
+                value = buildString {
+                    append(entry.locationLabel)
+                    append('\n')
+                    append(
+                        String.format(
+                            Locale.US,
+                            "%.5f, %.5f",
+                            entry.latitude,
+                            entry.longitude
+                        )
+                    )
+                }
+            )
+            DetailField(
+                label = "Entry",
+                value = entry.fullBody
+            )
+        }
+    }
+}
+
+@Composable
+private fun DetailField(
+    label: String,
+    value: String
+) {
+    val colors = MaterialTheme.colorScheme
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(
+            label,
+            style = MaterialTheme.typography.labelLarge,
+            color = colors.onSurfaceVariant,
+            fontWeight = FontWeight.SemiBold
+        )
+        Text(
+            value,
+            style = MaterialTheme.typography.bodyLarge,
+            color = colors.onSurface
+        )
+    }
+}
+
+@Composable
 private fun JournalEntriesTable(
     rows: List<JournalTableRow>,
-    loading: Boolean
+    loading: Boolean,
+    onRowClick: (Long) -> Unit
 ) {
     val colors = MaterialTheme.colorScheme
     Column(
@@ -174,11 +287,11 @@ private fun JournalEntriesTable(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                "Date",
+                "Date & time",
                 style = MaterialTheme.typography.labelLarge,
                 fontWeight = FontWeight.SemiBold,
                 color = colors.onSurface,
-                modifier = Modifier.width(104.dp)
+                modifier = Modifier.width(112.dp)
             )
             Box(
                 modifier = Modifier
@@ -240,29 +353,34 @@ private fun JournalEntriesTable(
                                     colors.surface
                                 }
                             )
+                            .clickable { onRowClick(row.entryId) }
                             .padding(horizontal = 12.dp, vertical = 10.dp),
                         verticalAlignment = Alignment.Top
                     ) {
                         Text(
-                            text = row.dateLabel,
-                            style = MaterialTheme.typography.bodyMedium,
-                            fontWeight = if (row.showDate) FontWeight.SemiBold else FontWeight.Normal,
+                            text = row.dateTimeLabel,
+                            style = MaterialTheme.typography.bodySmall,
+                            fontWeight = FontWeight.SemiBold,
                             color = colors.onSurface,
-                            modifier = Modifier.width(104.dp)
+                            modifier = Modifier.width(112.dp)
                         )
                         Box(
                             modifier = Modifier
+                                .padding(top = 2.dp)
                                 .width(1.dp)
-                                .height(18.dp)
+                                .height(28.dp)
                                 .background(colors.outline.copy(alpha = 0.25f))
                         )
                         Text(
-                            text = row.entryText,
+                            text = row.previewText,
                             style = MaterialTheme.typography.bodyMedium,
                             color = colors.onSurface,
+                            maxLines = 3,
+                            overflow = TextOverflow.Ellipsis,
                             modifier = Modifier
                                 .weight(1f)
                                 .padding(start = 12.dp)
+                                .heightIn(min = 36.dp)
                         )
                     }
                 }
