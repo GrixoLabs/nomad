@@ -48,4 +48,5 @@
     <string name="tracking_notification_hide">Hide notification</string>
     <string name="tracking_notification_show">Show notification</string>
     <string name="hide_tracking_notification">Hide tracking notification</string>
+    <string name="tracking_notification_required">A quiet notification stays on while tracking so location keeps uploading.</string>
 </resources>

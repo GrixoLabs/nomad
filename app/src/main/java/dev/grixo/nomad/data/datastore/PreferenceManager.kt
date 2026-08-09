@@ -36,6 +36,7 @@ class PreferenceManager @Inject constructor(
     private val trackingEnabledKey = booleanPreferencesKey("tracking_enabled")
     private val trackingNotificationVisibleKey =
         booleanPreferencesKey("tracking_notification_visible")
+    private val lastUploadEpochMsKey = longPreferencesKey("last_upload_epoch_ms")
 
     val deviceUuid: Flow<String?> = context.dataStore.data.map { it[deviceUuidKey] }
     val deviceId: Flow<Long?> = context.dataStore.data.map { it[deviceIdKey] }
@@ -44,9 +45,17 @@ class PreferenceManager @Inject constructor(
         it[trackingEnabledKey] == true
     }
 
-    /** When false, the foreground notification is removed; tracking continues. */
+    /**
+     * Preference kept for UI compatibility. Android requires an ongoing foreground
+     * notification while location tracking runs — hiding it demotes the service and
+     * stops reliable GPS uploads, so the service always keeps the FGS notification.
+     */
     val trackingNotificationVisible: Flow<Boolean> = context.dataStore.data.map {
         it[trackingNotificationVisibleKey] != false
+    }
+
+    val lastUploadEpochMs: Flow<Long?> = context.dataStore.data.map {
+        it[lastUploadEpochMsKey]
     }
 
     val onboardingStatus: Flow<OnboardingStatus> = context.dataStore.data.map { prefs ->
@@ -109,6 +118,10 @@ class PreferenceManager @Inject constructor(
 
     suspend fun setTrackingNotificationVisible(visible: Boolean) {
         context.dataStore.edit { it[trackingNotificationVisibleKey] = visible }
+    }
+
+    suspend fun setLastUploadEpochMs(epochMs: Long) {
+        context.dataStore.edit { it[lastUploadEpochMsKey] = epochMs }
     }
 
     suspend fun skipRegistration() {

@@ -24,6 +24,8 @@ class SignalRepositoryImpl @Inject constructor(
 
     override fun getAllOfflineSignals(): Flow<List<SignalEntity>> = signalDao.getAllSignals()
 
+    override suspend fun getOfflineSignalCount(): Int = signalDao.countSignals()
+
     override suspend fun sendSignalDirectly(signal: SignalEntity): Result<Unit> {
         return try {
             val uuid = preferenceManager.deviceUuid.first()
@@ -74,7 +76,8 @@ class SignalRepositoryImpl @Inject constructor(
         altitude_m = altitudeM,
         speed_mps = speedMps,
         bearing_deg = bearingDeg,
-        battery_percent = batteryPercent,
+        // Backend rejects battery_percent < 0; collector uses -1 when unknown.
+        battery_percent = batteryPercent.takeIf { it in 0..100 },
         charging = charging,
         battery_temperature = batteryTemperature,
         network_type = networkType,

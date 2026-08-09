@@ -19,6 +19,9 @@ interface SignalDao {
     @Query("SELECT * FROM offline_signals ORDER BY id ASC LIMIT 50")
     suspend fun getSignalsChunk(): List<SignalEntity>
 
+    @Query("SELECT COUNT(*) FROM offline_signals")
+    suspend fun countSignals(): Int
+
     @Delete
     suspend fun deleteSignals(signals: List<SignalEntity>)
 

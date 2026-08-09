@@ -10,7 +10,6 @@ import android.os.Build
 import androidx.core.app.NotificationCompat
 import dev.grixo.nomad.MainActivity
 import dev.grixo.nomad.R
-import dev.grixo.nomad.service.TrackingService
 
 object NotificationHelper {
     /** New channel id so IMPORTANCE_MIN applies (channel importance is immutable). */
@@ -41,30 +40,18 @@ object NotificationHelper {
             Intent(context, MainActivity::class.java),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
-        val hideIntent = Intent(context, TrackingService::class.java).apply {
-            action = TrackingService.ACTION_HIDE_NOTIFICATION
-        }
-        val hidePending = PendingIntent.getService(
-            context,
-            1,
-            hideIntent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
 
         return NotificationCompat.Builder(context, CHANNEL_ID)
             .setContentTitle(context.getString(R.string.tracking_notification_title))
             .setSmallIcon(R.drawable.ic_launcher_foreground)
             .setContentIntent(openApp)
-            .setOngoing(false)
+            // Ongoing keeps the location FGS notification from being dismissed.
+            .setOngoing(true)
             .setSilent(true)
             .setOnlyAlertOnce(true)
             .setPriority(NotificationCompat.PRIORITY_MIN)
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
-            .addAction(
-                0,
-                context.getString(R.string.tracking_notification_hide),
-                hidePending
-            )
+            .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
             .build()
     }
 }
