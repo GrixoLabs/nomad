@@ -100,13 +100,17 @@ class NavigateMapViewModel @Inject constructor(
                     )
                 )
                 if (!response.isSuccessful || response.body() == null) {
+                    val detail = response.errorBody()?.string()?.take(220)?.trim()
                     _uiState.update {
                         it.copy(
                             loading = false,
                             styleUrl = config.style_url,
                             tileUrlTemplate = config.tile_url_template,
                             attribution = config.attribution,
-                            errorMessage = "Could not compute route (${response.code()})"
+                            errorMessage = buildString {
+                                append("Could not compute route (${response.code()})")
+                                if (!detail.isNullOrBlank()) append(": ").append(detail)
+                            }
                         )
                     }
                     return@launch
