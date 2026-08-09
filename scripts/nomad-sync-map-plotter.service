@@ -1,0 +1,10 @@
+[Unit]
+Description=Sync Nomad map_plotter from device_signals / journals
+After=network.target postgresql.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/nomad
+EnvironmentFile=-/opt/nomad/.env
+ExecStart=/opt/nomad/.venv/bin/python /opt/nomad/scripts/compute_map_plotter.py
+Nice=10
