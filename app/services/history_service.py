@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.config.settings import get_settings
 from app.database.models.journal import JournalEntry
+from app.database.models.place import PlaceCache
 from app.repositories.device_repository import DeviceRepository
 from app.schemas.history import (
     HistoryResponse,
@@ -24,12 +25,71 @@ from app.schemas.history import (
 )
 from app.security.journal_crypto import decrypt_journal, encrypt_journal
 from app.services.map_plotter_service import MIN_PLOT_SECONDS, MapPlotterService, round_cell
+from app.services.place_service import PlaceService
+from app.utils.geo import grid_key
 
 
 class HistoryService:
     def __init__(self) -> None:
         self.devices = DeviceRepository()
         self.plotter = MapPlotterService()
+        self.places = PlaceService()
+
+    def _place_name(
+        self,
+        db: Session,
+        lat: float,
+        lon: float,
+        existing: str | None,
+        *,
+        resolve_missing: bool = False,
+        memo: dict[str, str] | None = None,
+    ) -> str | None:
+        """Prefer stored label; else nomad.place_cache area/display name."""
+        if existing and existing.strip():
+            return existing.strip()
+        key = grid_key(lat, lon)
+        if memo is not None and key in memo:
+            return memo[key] or None
+
+        cached = db.get(PlaceCache, key)
+        if cached is not None:
+            label = (
+                PlaceService._area_label(cached.locality, cached.city)
+                or (cached.display_name or "").strip()
+                or None
+            )
+            if memo is not None and label:
+                memo[key] = label
+            return label
+
+        if not resolve_missing:
+            if memo is not None:
+                memo[key] = ""
+            return None
+
+        try:
+            resolved = self.places.resolve_place(db, lat, lon)
+            label = (
+                resolved.area_label
+                or resolved.display_name
+                or ", ".join(
+                    x
+                    for x in (
+                        resolved.locality,
+                        resolved.city,
+                        resolved.region,
+                        resolved.country,
+                    )
+                    if x
+                )
+                or None
+            )
+        except Exception:  # noqa: BLE001
+            label = None
+        if memo is not None:
+            memo[key] = label or ""
+        return label
 
     def map_config(self) -> MapConfigResponse:
         settings = get_settings()
@@ -69,12 +129,22 @@ class HistoryService:
         if len(body) > 500:
             raise HTTPException(status_code=400, detail="Journal body max 500 characters")
 
+        lat = float(request.latitude)
+        lon = float(request.longitude)
+        place_label = self._place_name(
+            db,
+            lat,
+            lon,
+            request.place_label,
+            resolve_missing=True,
+        )
+
         ct, nonce = encrypt_journal(body)
         entry = JournalEntry(
             device_id=device.device_id,
-            latitude=float(request.latitude),
-            longitude=float(request.longitude),
-            place_label=request.place_label,
+            latitude=lat,
+            longitude=lon,
+            place_label=place_label,
             body_ciphertext=ct,
             body_nonce=nonce,
             created_at=datetime.now(timezone.utc),
@@ -153,22 +223,41 @@ class HistoryService:
         )
         journals_by_cell: dict[tuple[float, float], list[JournalEntryResponse]] = {}
         journal_pins: list[JournalEntryResponse] = []
+        place_memo: dict[str, str] = {}
+        dirty_labels = False
         for row in journals:
             try:
                 body = decrypt_journal(row.body_ciphertext, row.body_nonce)
             except Exception:  # noqa: BLE001
                 body = "[unavailable]"
+            # Fill missing names from nomad.place_cache (resolve once per grid).
+            label = self._place_name(
+                db,
+                row.latitude,
+                row.longitude,
+                row.place_label,
+                resolve_missing=True,
+                memo=place_memo,
+            )
+            if label and not (row.place_label or "").strip():
+                row.place_label = label
+                dirty_labels = True
             item = JournalEntryResponse(
                 entry_id=row.entry_id,
                 latitude=row.latitude,
                 longitude=row.longitude,
-                place_label=row.place_label,
+                place_label=label,
                 body=body,
                 created_at=row.created_at,
             )
             journal_pins.append(item)
             key = (round_cell(row.latitude), round_cell(row.longitude))
             journals_by_cell.setdefault(key, []).append(item)
+        if dirty_labels:
+            try:
+                db.commit()
+            except Exception:  # noqa: BLE001
+                db.rollback()
 
         # Plot points = cells with meaningful dwell (> 30 minutes).
         plot_points: list[PlotPointResponse] = []
@@ -178,6 +267,14 @@ class HistoryService:
                 continue
             key = (round_cell(plot.latitude), round_cell(plot.longitude))
             cell_journals = journals_by_cell.get(key, [])
+            plot_label = self._place_name(
+                db,
+                plot.latitude,
+                plot.longitude,
+                plot.place_label,
+                resolve_missing=False,
+                memo=place_memo,
+            )
             plot_points.append(
                 PlotPointResponse(
                     plot_id=plot.plot_id,
@@ -189,7 +286,7 @@ class HistoryService:
                     visit_count=plot.visit_count,
                     journal_count=plot.journal_count,
                     night_stayed=plot.night_stayed,
-                    place_label=plot.place_label,
+                    place_label=plot_label,
                     journals=cell_journals,
                 )
             )
