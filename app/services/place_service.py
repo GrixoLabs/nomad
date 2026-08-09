@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from datetime import datetime, timezone
 from typing import Any
 
@@ -22,6 +23,23 @@ from app.schemas.place import (
 from app.utils.geo import grid_center, grid_key, haversine_m
 
 logger = logging.getLogger(__name__)
+
+NEARBY_RADIUS_M = 25_000
+_NAME_STOPWORDS = (
+    "zoological",
+    "park",
+    "the",
+    "and",
+    "of",
+    "at",
+    "in",
+    "national",
+    "international",
+    "memorial",
+    "complex",
+    "centre",
+    "center",
+)
 
 WMO_SUMMARY = {
     0: "Clear",
@@ -184,7 +202,7 @@ class PlaceService:
         limit: int = 10,
         sort: str = "popularity",
     ) -> NearbyPlacesResponse:
-        """Return top places for the city grid by popularity; client may re-sort by distance."""
+        """Top popular spots within 25 km. Distance is visual only; default sort is popularity."""
         key = grid_key(lat, lon)
         limit = max(1, min(limit, 10))
         sort = sort if sort in {"popularity", "distance"} else "popularity"
@@ -222,6 +240,8 @@ class PlaceService:
         scored: list[NearbyPlace] = []
         for row in cached_rows:
             dist = haversine_m(lat, lon, row.latitude, row.longitude)
+            if dist > NEARBY_RADIUS_M:
+                continue
             scored.append(
                 NearbyPlace(
                     name=row.name,
@@ -232,7 +252,9 @@ class PlaceService:
                     popularity_score=getattr(row, "popularity_score", 0) or 0,
                 )
             )
-        # Always pick the top-N by popularity for the city, then optionally order by distance.
+
+        scored = self._dedupe_similar_places(scored)
+        # Primary listing: popularity. Distance stays on the card as a visual.
         scored.sort(key=lambda p: (-p.popularity_score, p.distance_m or 1e12))
         top = scored[:limit]
         if sort == "distance":
@@ -284,8 +306,8 @@ class PlaceService:
             return data
 
     def _fetch_overpass(self, lat: float, lon: float) -> list[dict[str, Any]]:
-        # Tourism / amenity attractions within ~20 km.
-        radius_m = 20_000
+        # Tourism / amenity attractions within 25 km.
+        radius_m = NEARBY_RADIUS_M
         query = f"""
         [out:json][timeout:25];
         (
@@ -294,7 +316,7 @@ class PlaceService:
           node["historic"](around:{radius_m},{lat},{lon});
           node["amenity"~"place_of_worship|theatre|cinema"](around:{radius_m},{lat},{lon});
         );
-        out center 40;
+        out center 60;
         """
         with self._client() as client:
             resp = client.post(
@@ -318,6 +340,8 @@ class PlaceService:
                 if "lat" not in center or "lon" not in center:
                     continue
                 elat, elon = float(center["lat"]), float(center["lon"])
+            if haversine_m(lat, lon, elat, elon) > NEARBY_RADIUS_M:
+                continue
             category = (
                 tags.get("tourism")
                 or tags.get("historic")
@@ -339,6 +363,56 @@ class PlaceService:
             )
         results.sort(key=lambda x: -x["popularity_score"])
         return results
+
+    @staticmethod
+    def _normalize_place_name(name: str) -> str:
+        text = name.lower()
+        text = re.sub(r"[^a-z0-9\s]", " ", text)
+        tokens = [t for t in text.split() if t and t not in _NAME_STOPWORDS]
+        return "".join(tokens)
+
+    @classmethod
+    def _dedupe_similar_places(cls, places: list[NearbyPlace]) -> list[NearbyPlace]:
+        """Collapse near-duplicates like 'Tata Zoo' vs 'Tata Zoological Park'."""
+        best: dict[str, NearbyPlace] = {}
+        for place in places:
+            key = cls._normalize_place_name(place.name)
+            if not key:
+                key = place.name.strip().lower()
+            current = best.get(key)
+            if current is None:
+                best[key] = place
+                continue
+            # Keep the higher-popularity (then closer) name variant.
+            if (place.popularity_score, -(place.distance_m or 1e12)) > (
+                current.popularity_score,
+                -(current.distance_m or 1e12),
+            ):
+                # Prefer shorter/cleaner display name when scores tie-ish.
+                chosen = place
+            else:
+                chosen = current
+            # Prefer the shorter label among near-equal popularity.
+            other = current if chosen is place else place
+            if abs(chosen.popularity_score - other.popularity_score) <= 5 and len(
+                other.name
+            ) < len(chosen.name):
+                chosen = NearbyPlace(
+                    name=other.name,
+                    category=chosen.category or other.category,
+                    latitude=chosen.latitude,
+                    longitude=chosen.longitude,
+                    distance_m=min(
+                        x
+                        for x in (chosen.distance_m, other.distance_m)
+                        if x is not None
+                    )
+                    if chosen.distance_m is not None or other.distance_m is not None
+                    else None,
+                    popularity_score=max(chosen.popularity_score, other.popularity_score),
+                )
+            best[key] = chosen
+        return list(best.values())
 
     @staticmethod
     def _popularity_score(tags: dict[str, Any], category: str) -> int:

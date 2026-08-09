@@ -1,4 +1,4 @@
-"""Travel history: track segments, journal pins, overnight stays."""
+"""Travel history built from nomad.map_plotter (plus Stadia map config / journals)."""
 
 from __future__ import annotations
 
@@ -9,8 +9,8 @@ from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.database.models.device_signal import DeviceSignal
-from app.database.models.journal import JournalEntry, NightStay
+from app.config.settings import get_settings
+from app.database.models.journal import JournalEntry
 from app.repositories.device_repository import DeviceRepository
 from app.schemas.history import (
     HistoryResponse,
@@ -18,27 +18,18 @@ from app.schemas.history import (
     JournalEntryResponse,
     MapConfigResponse,
     NightStayResponse,
+    PlotPointResponse,
     TrackPoint,
     TrackSegment,
 )
 from app.security.journal_crypto import decrypt_journal, encrypt_journal
-from app.services.night_stay_service import NightStayService
-from app.utils.geo import haversine_m
-from app.config.settings import get_settings
-
-# Movement between consecutive samples above this → "travel" (crimson line)
-TRAVEL_GAP_M = 180.0
-
-
-def round_coord(value: float) -> float:
-    """Keep full float precision in API/DB payloads (UI may display fewer decimals)."""
-    return float(value)
+from app.services.map_plotter_service import MapPlotterService, round_cell
 
 
 class HistoryService:
     def __init__(self) -> None:
         self.devices = DeviceRepository()
-        self.nights = NightStayService()
+        self.plotter = MapPlotterService()
 
     def map_config(self) -> MapConfigResponse:
         settings = get_settings()
@@ -58,7 +49,6 @@ class HistoryService:
                 style_url=style_url,
                 attribution="© Stadia Maps © OpenMapTiles © OpenStreetMap",
             )
-        # Fallback so history map still loads when STADIA_API is unset.
         return MapConfigResponse(
             tile_url_template="https://tile.openstreetmap.org/{z}/{x}/{y}.png",
             style="osm",
@@ -92,6 +82,13 @@ class HistoryService:
         db.add(entry)
         db.commit()
         db.refresh(entry)
+
+        # Keep map_plotter journal_count in sync.
+        try:
+            self.plotter.sync_device(db, device.device_id)
+        except Exception:  # noqa: BLE001
+            pass
+
         return JournalEntryResponse(
             entry_id=entry.entry_id,
             latitude=entry.latitude,
@@ -109,141 +106,116 @@ class HistoryService:
         if not device:
             raise HTTPException(status_code=404, detail="Device not registered")
 
+        # Refresh map_plotter from new signals / journals.
+        self.plotter.sync_device(db, device.device_id)
+
         since = datetime.now(timezone.utc) - timedelta(days=days)
+        plots = self.plotter.plots_for_device(db, device.device_id, since=since)
 
-        # Refresh night stays for the window before responding
-        self.nights.compute_for_device(db, device.device_id, since)
-
-        signals = list(
-            db.scalars(
-                select(DeviceSignal)
-                .where(
-                    DeviceSignal.device_id == device.device_id,
-                    DeviceSignal.gps_timestamp_utc >= since,
-                )
-                .order_by(DeviceSignal.gps_timestamp_utc.asc())
-            ).all()
-        )
-        segments = self._build_segments(signals)
-
-        journal_rows = list(
+        journals = list(
             db.scalars(
                 select(JournalEntry)
                 .where(
                     JournalEntry.device_id == device.device_id,
                     JournalEntry.created_at >= since,
                 )
-                .order_by(JournalEntry.created_at.desc())
+                .order_by(JournalEntry.created_at.asc())
             ).all()
         )
-        pins: list[JournalEntryResponse] = []
-        for row in journal_rows:
+        journals_by_cell: dict[tuple[float, float], list[JournalEntryResponse]] = {}
+        journal_pins: list[JournalEntryResponse] = []
+        for row in journals:
             try:
                 body = decrypt_journal(row.body_ciphertext, row.body_nonce)
             except Exception:  # noqa: BLE001
                 body = "[unavailable]"
-            pins.append(
-                JournalEntryResponse(
-                    entry_id=row.entry_id,
-                    latitude=row.latitude,
-                    longitude=row.longitude,
-                    place_label=row.place_label,
-                    body=body,
-                    created_at=row.created_at,
-                )
+            item = JournalEntryResponse(
+                entry_id=row.entry_id,
+                latitude=row.latitude,
+                longitude=row.longitude,
+                place_label=row.place_label,
+                body=body,
+                created_at=row.created_at,
             )
+            journal_pins.append(item)
+            key = (round_cell(row.latitude), round_cell(row.longitude))
+            journals_by_cell.setdefault(key, []).append(item)
 
-        night_rows = list(
-            db.scalars(
-                select(NightStay)
-                .where(
-                    NightStay.device_id == device.device_id,
-                    NightStay.started_at >= since,
+        plot_points: list[PlotPointResponse] = []
+        night_stays: list[NightStayResponse] = []
+        for plot in plots:
+            key = (plot.latitude, plot.longitude)
+            cell_journals = journals_by_cell.get(key, [])
+            plot_points.append(
+                PlotPointResponse(
+                    plot_id=plot.plot_id,
+                    latitude=plot.latitude,
+                    longitude=plot.longitude,
+                    first_gps_timestamp=plot.first_gps_timestamp,
+                    last_gps_timestamp=plot.last_gps_timestamp,
+                    total_time_hours=round(plot.total_time_at_location_seconds / 3600.0, 2),
+                    visit_count=plot.visit_count,
+                    journal_count=plot.journal_count,
+                    night_stayed=plot.night_stayed,
+                    place_label=plot.place_label,
+                    journals=cell_journals,
                 )
-                .order_by(NightStay.stay_date.desc())
-            ).all()
-        )
-        nights = [
-            NightStayResponse(
-                night_stay_id=n.night_stay_id,
-                stay_date=n.stay_date,
-                latitude=n.latitude,
-                longitude=n.longitude,
-                started_at=n.started_at,
-                ended_at=n.ended_at,
-                idle_hours=n.idle_hours,
-                weather_summary=n.weather_summary,
-                temperature_c=n.temperature_c,
             )
-            for n in night_rows
-        ]
+            if plot.night_stayed:
+                night_stays.append(
+                    NightStayResponse(
+                        night_stay_id=plot.plot_id,
+                        stay_date=plot.first_gps_timestamp.date(),
+                        latitude=plot.latitude,
+                        longitude=plot.longitude,
+                        started_at=plot.first_gps_timestamp,
+                        ended_at=plot.last_gps_timestamp,
+                        idle_hours=round(plot.night_time_seconds / 3600.0, 2),
+                        weather_summary=None,
+                        temperature_c=None,
+                    )
+                )
+
+        segments = self._segments_from_plots(plot_points)
 
         return HistoryResponse(
             days=days,
+            plot_points=plot_points,
             segments=segments,
-            journal_pins=pins,
-            night_stays=nights,
+            journal_pins=journal_pins,
+            night_stays=night_stays,
         )
 
-    def _build_segments(self, signals: list[DeviceSignal]) -> list[TrackSegment]:
-        if not signals:
+    def _segments_from_plots(
+        self, plots: list[PlotPointResponse]
+    ) -> list[TrackSegment]:
+        """Connect plot cells in time order for a simple path on the map."""
+        if len(plots) < 2:
+            if len(plots) == 1:
+                p = plots[0]
+                return [
+                    TrackSegment(
+                        kind="idle",
+                        points=[
+                            TrackPoint(
+                                latitude=p.latitude,
+                                longitude=p.longitude,
+                                captured_at=p.last_gps_timestamp,
+                            )
+                        ],
+                    )
+                ]
             return []
 
-        segments: list[TrackSegment] = []
-        current_kind: str | None = None
-        current_points: list[TrackPoint] = []
-
-        def flush() -> None:
-            nonlocal current_kind, current_points
-            if current_kind and len(current_points) >= 2:
-                segments.append(TrackSegment(kind=current_kind, points=list(current_points)))
-            elif current_kind and current_points:
-                # Keep singleton so map still shows a point
-                segments.append(TrackSegment(kind=current_kind, points=list(current_points)))
-            current_points = []
-            current_kind = None
-
-        prev = signals[0]
-        current_kind = "idle"
-        current_points = [
+        ordered = sorted(plots, key=lambda p: p.last_gps_timestamp)
+        points = [
             TrackPoint(
-                latitude=round_coord(prev.latitude),
-                longitude=round_coord(prev.longitude),
-                altitude_m=prev.altitude_m,
-                captured_at=prev.gps_timestamp_utc,
-                speed_mps=prev.speed_mps,
+                latitude=p.latitude,
+                longitude=p.longitude,
+                captured_at=p.last_gps_timestamp,
             )
+            for p in ordered
         ]
-
-        for sig in signals[1:]:
-            dist = haversine_m(prev.latitude, prev.longitude, sig.latitude, sig.longitude)
-            speed = sig.speed_mps or 0.0
-            kind = "travel" if dist >= TRAVEL_GAP_M or speed >= 1.5 else "idle"
-            point = TrackPoint(
-                latitude=round_coord(sig.latitude),
-                longitude=round_coord(sig.longitude),
-                altitude_m=sig.altitude_m,
-                captured_at=sig.gps_timestamp_utc,
-                speed_mps=sig.speed_mps,
-            )
-            if kind != current_kind:
-                # bridge with previous point so line is continuous
-                if current_points:
-                    flush()
-                current_kind = kind
-                current_points = [
-                    TrackPoint(
-                        latitude=round_coord(prev.latitude),
-                        longitude=round_coord(prev.longitude),
-                        altitude_m=prev.altitude_m,
-                        captured_at=prev.gps_timestamp_utc,
-                        speed_mps=prev.speed_mps,
-                    ),
-                    point,
-                ]
-            else:
-                current_points.append(point)
-            prev = sig
-
-        flush()
-        return segments
+        # Night cells get idle styling; otherwise travel between distinct cells.
+        kind = "idle" if any(p.night_stayed for p in ordered) else "travel"
+        return [TrackSegment(kind=kind, points=points)]

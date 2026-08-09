@@ -57,4 +57,11 @@ class SignalService:
 
         created = self.signal_repository.create(db, signal)
         self.device_repository.touch_last_seen(db, device)
+        # Keep map_plotter cells current for history map rendering.
+        try:
+            from app.services.map_plotter_service import MapPlotterService
+
+            MapPlotterService().sync_device(db, device.device_id)
+        except Exception:  # noqa: BLE001
+            pass
         return created

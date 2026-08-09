@@ -30,13 +30,15 @@ class TrackPoint(BaseModel):
 
 
 class TrackSegment(BaseModel):
-    """Navy = calm/idle travel; crimson = moving/travelling."""
+    """Path polyline derived from map_plotter cells in time order."""
 
     kind: str = Field(description="idle | travel")
     points: list[TrackPoint]
 
 
 class NightStayResponse(BaseModel):
+    """Derived from map_plotter.night_stayed for map styling."""
+
     night_stay_id: int
     stay_date: date
     latitude: float
@@ -48,8 +50,25 @@ class NightStayResponse(BaseModel):
     temperature_c: float | None = None
 
 
+class PlotPointResponse(BaseModel):
+    """One map_plotter cell — the base unit for history map plotting."""
+
+    plot_id: int
+    latitude: float
+    longitude: float
+    first_gps_timestamp: datetime
+    last_gps_timestamp: datetime
+    total_time_hours: float
+    visit_count: int
+    journal_count: int
+    night_stayed: bool
+    place_label: str | None = None
+    journals: list[JournalEntryResponse] = Field(default_factory=list)
+
+
 class HistoryResponse(BaseModel):
     days: int
+    plot_points: list[PlotPointResponse] = Field(default_factory=list)
     segments: list[TrackSegment] = Field(default_factory=list)
     journal_pins: list[JournalEntryResponse] = Field(default_factory=list)
     night_stays: list[NightStayResponse] = Field(default_factory=list)
@@ -59,5 +78,4 @@ class MapConfigResponse(BaseModel):
     tile_url_template: str
     attribution: str = "© Stadia Maps © OpenMapTiles © OpenStreetMap"
     style: str = "alidade_smooth"
-    # MapLibre style JSON URL when STADIA_API is configured (preferred by Android).
     style_url: str | None = None
