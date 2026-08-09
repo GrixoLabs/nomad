@@ -170,6 +170,8 @@ class MainViewModel @Inject constructor(
                         NearbyPlaceUi(
                             name = it.name,
                             category = it.category,
+                            latitude = it.latitude,
+                            longitude = it.longitude,
                             distanceKm = it.distance_m?.div(1000.0),
                             popularityScore = it.popularity_score
                         )

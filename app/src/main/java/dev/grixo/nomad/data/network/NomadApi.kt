@@ -14,6 +14,8 @@ import dev.grixo.nomad.data.network.model.MapConfigResponse
 import dev.grixo.nomad.data.network.model.NearbyPlacesResponse
 import dev.grixo.nomad.data.network.model.PlaceResolveResponse
 import dev.grixo.nomad.data.network.model.ResetPasswordRequest
+import dev.grixo.nomad.data.network.model.RouteRequest
+import dev.grixo.nomad.data.network.model.RouteResponse
 import dev.grixo.nomad.data.network.model.SendEmailOtpRequest
 import dev.grixo.nomad.data.network.model.SendSmsOtpRequest
 import dev.grixo.nomad.data.network.model.SignalRequest
@@ -82,6 +84,9 @@ interface NomadApi {
         @Query("limit") limit: Int = 10,
         @Query("sort") sort: String = "popularity"
     ): Response<NearbyPlacesResponse>
+
+    @POST("api/v1/routes/compute")
+    suspend fun computeRoute(@Body request: RouteRequest): Response<RouteResponse>
 
     @GET("api/v1/map/config")
     suspend fun mapConfig(): Response<MapConfigResponse>

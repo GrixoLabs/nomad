@@ -60,6 +60,13 @@ fun MainRoute(
     onOpenJournal: () -> Unit,
     onOpenHistory: () -> Unit,
     onOpenRegister: () -> Unit,
+    onNavigateToPlace: (
+        name: String,
+        originLat: Double,
+        originLon: Double,
+        destLat: Double,
+        destLon: Double
+    ) -> Unit,
     onLoggedOut: () -> Unit,
     viewModel: MainViewModel = hiltViewModel()
 ) {
@@ -150,6 +157,17 @@ fun MainRoute(
         onNearby = viewModel::loadNearbyPlaces,
         onHideNearby = viewModel::hideNearby,
         onNearbySort = viewModel::setNearbySort,
+        onNavigateToPlace = { place ->
+            val originLat = uiState.latitude ?: return@MainScreen
+            val originLon = uiState.longitude ?: return@MainScreen
+            onNavigateToPlace(
+                place.name,
+                originLat,
+                originLon,
+                place.latitude,
+                place.longitude
+            )
+        },
         onOpenJournal = onOpenJournal,
         onOpenHistory = onOpenHistory,
         onOpenRegister = onOpenRegister,
@@ -169,6 +187,7 @@ fun MainScreen(
     onNearby: () -> Unit,
     onHideNearby: () -> Unit,
     onNearbySort: (String) -> Unit,
+    onNavigateToPlace: (NearbyPlaceUi) -> Unit,
     onOpenJournal: () -> Unit,
     onOpenHistory: () -> Unit,
     onOpenRegister: () -> Unit,
@@ -371,7 +390,10 @@ fun MainScreen(
                         )
                     } else {
                         state.nearbyPlaces.forEachIndexed { index, place ->
-                            Row(modifier = Modifier.fillMaxWidth()) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
                                 Text(
                                     "${index + 1}.",
                                     color = colors.primary,
@@ -394,6 +416,12 @@ fun MainScreen(
                                         color = colors.onSurfaceVariant,
                                         style = MaterialTheme.typography.bodySmall
                                     )
+                                }
+                                TextButton(
+                                    onClick = { onNavigateToPlace(place) },
+                                    enabled = state.latitude != null && state.longitude != null
+                                ) {
+                                    Text("Navigate", color = colors.primary)
                                 }
                             }
                             if (index < state.nearbyPlaces.lastIndex) {

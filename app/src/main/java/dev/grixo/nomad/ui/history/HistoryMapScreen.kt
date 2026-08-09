@@ -1,6 +1,10 @@
 package dev.grixo.nomad.ui.history
 
+import android.graphics.Bitmap
+import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.Paint
+import android.graphics.Path
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -48,6 +52,7 @@ import org.maplibre.android.style.expressions.Expression
 import org.maplibre.android.style.layers.CircleLayer
 import org.maplibre.android.style.layers.LineLayer
 import org.maplibre.android.style.layers.PropertyFactory
+import org.maplibre.android.style.layers.SymbolLayer
 import org.maplibre.android.style.sources.GeoJsonSource
 import org.maplibre.geojson.Feature
 import org.maplibre.geojson.FeatureCollection
@@ -306,7 +311,6 @@ private fun rasterStyleJson(tileUrl: String, attribution: String): String {
 private fun addHistoryLayers(style: Style, history: HistoryResponse) {
     if (style.getSource(SOURCE_TRACKS) == null) {
         style.addSource(GeoJsonSource(SOURCE_TRACKS, trackCollection(history)))
-        // Dark-blue path connecting plot points (>30 min dwell from API).
         style.addLayer(
             LineLayer(LAYER_PATH, SOURCE_TRACKS).withProperties(
                 PropertyFactory.lineColor(Color.parseColor("#0B1F4A")),
@@ -318,54 +322,74 @@ private fun addHistoryLayers(style: Style, history: HistoryResponse) {
 
     if (style.getSource(SOURCE_PLOTS) == null) {
         style.addSource(GeoJsonSource(SOURCE_PLOTS, plotCollection(history)))
-        // Concentric marker: outer blue ring.
+
+        // Day/travel plot points: blue concentric ring + dot (non-night).
         style.addLayer(
             CircleLayer(LAYER_PLOT_RING, SOURCE_PLOTS).withProperties(
-                PropertyFactory.circleRadius(12f),
+                PropertyFactory.circleRadius(13f),
                 PropertyFactory.circleColor(Color.TRANSPARENT),
                 PropertyFactory.circleStrokeWidth(2.5f),
-                PropertyFactory.circleStrokeColor(Color.parseColor("#2563EB")),
-                PropertyFactory.circleOpacity(1f)
-            )
+                PropertyFactory.circleStrokeColor(Color.parseColor("#2563EB"))
+            ).withFilter(Expression.eq(Expression.get("night_stayed"), Expression.literal(0)))
         )
-        // Concentric marker: inner blue dot.
         style.addLayer(
             CircleLayer(LAYER_PLOTS, SOURCE_PLOTS).withProperties(
                 PropertyFactory.circleRadius(4.5f),
                 PropertyFactory.circleColor(Color.parseColor("#1D4ED8")),
                 PropertyFactory.circleStrokeWidth(0f)
-            )
+            ).withFilter(Expression.eq(Expression.get("night_stayed"), Expression.literal(0)))
         )
-        // Night stays keep a wider translucent ring under the concentric marker.
-        style.addLayerBelow(
-            CircleLayer(LAYER_NIGHTS, SOURCE_PLOTS).withProperties(
-                PropertyFactory.circleRadius(18f),
-                PropertyFactory.circleColor(Color.parseColor("#331E3A8A")),
-                PropertyFactory.circleStrokeWidth(2f),
-                PropertyFactory.circleStrokeColor(Color.parseColor("#0B1F4A"))
-            ).withFilter(
-                Expression.eq(Expression.get("night_stayed"), Expression.literal(true))
-            ),
-            LAYER_PLOT_RING
+
+        // Night stays: amber/gold concentric circles (outer + mid + center).
+        style.addLayer(
+            CircleLayer(LAYER_NIGHT_OUTER, SOURCE_PLOTS).withProperties(
+                PropertyFactory.circleRadius(20f),
+                PropertyFactory.circleColor(Color.parseColor("#33F59E0B")),
+                PropertyFactory.circleStrokeWidth(2.5f),
+                PropertyFactory.circleStrokeColor(Color.parseColor("#B45309"))
+            ).withFilter(Expression.eq(Expression.get("night_stayed"), Expression.literal(1)))
         )
         style.addLayer(
-            CircleLayer(LAYER_JOURNALS, SOURCE_PLOTS).withProperties(
-                PropertyFactory.circleRadius(5.5f),
-                PropertyFactory.circleColor(Color.parseColor("#DC2626")),
-                PropertyFactory.circleStrokeWidth(2f),
-                PropertyFactory.circleStrokeColor(Color.WHITE)
-            ).withFilter(
-                Expression.gt(Expression.get("journal_count"), Expression.literal(0))
+            CircleLayer(LAYER_NIGHT_RING, SOURCE_PLOTS).withProperties(
+                PropertyFactory.circleRadius(12f),
+                PropertyFactory.circleColor(Color.TRANSPARENT),
+                PropertyFactory.circleStrokeWidth(3f),
+                PropertyFactory.circleStrokeColor(Color.parseColor("#D97706"))
+            ).withFilter(Expression.eq(Expression.get("night_stayed"), Expression.literal(1)))
+        )
+        style.addLayer(
+            CircleLayer(LAYER_NIGHTS, SOURCE_PLOTS).withProperties(
+                PropertyFactory.circleRadius(5f),
+                PropertyFactory.circleColor(Color.parseColor("#92400E")),
+                PropertyFactory.circleStrokeWidth(0f)
+            ).withFilter(Expression.eq(Expression.get("night_stayed"), Expression.literal(1)))
+        )
+    } else {
+        (style.getSource(SOURCE_PLOTS) as? GeoJsonSource)?.setGeoJson(plotCollection(history))
+    }
+
+    ensureJournalPinImage(style)
+    if (style.getSource(SOURCE_JOURNALS) == null) {
+        style.addSource(GeoJsonSource(SOURCE_JOURNALS, journalCollection(history)))
+        style.addLayer(
+            SymbolLayer(LAYER_JOURNALS, SOURCE_JOURNALS).withProperties(
+                PropertyFactory.iconImage(JOURNAL_PIN_IMAGE),
+                PropertyFactory.iconSize(1.05f),
+                PropertyFactory.iconAllowOverlap(true),
+                PropertyFactory.iconIgnorePlacement(true),
+                PropertyFactory.iconAnchor("bottom")
             )
         )
     } else {
-        updateHistoryLayers(style, history)
+        (style.getSource(SOURCE_JOURNALS) as? GeoJsonSource)?.setGeoJson(journalCollection(history))
     }
 }
 
 private fun updateHistoryLayers(style: Style, history: HistoryResponse) {
     (style.getSource(SOURCE_TRACKS) as? GeoJsonSource)?.setGeoJson(trackCollection(history))
     (style.getSource(SOURCE_PLOTS) as? GeoJsonSource)?.setGeoJson(plotCollection(history))
+    ensureJournalPinImage(style)
+    (style.getSource(SOURCE_JOURNALS) as? GeoJsonSource)?.setGeoJson(journalCollection(history))
 }
 
 private fun trackCollection(history: HistoryResponse): FeatureCollection {
@@ -383,18 +407,62 @@ private fun plotCollection(history: HistoryResponse): FeatureCollection {
     val features = history.plot_points.map { plot ->
         Feature.fromGeometry(Point.fromLngLat(plot.longitude, plot.latitude)).also {
             it.addNumberProperty("plot_id", plot.plot_id)
-            it.addBooleanProperty("night_stayed", plot.night_stayed)
+            // Number (0/1) filters are more reliable than boolean in MapLibre Android.
+            it.addNumberProperty("night_stayed", if (plot.night_stayed) 1 else 0)
             it.addNumberProperty("journal_count", plot.journal_count)
-            plot.journals.firstOrNull()?.let { j ->
-                it.addNumberProperty("entry_id", j.entry_id)
-            }
         }
     }
     return FeatureCollection.fromFeatures(features)
 }
 
+private fun journalCollection(history: HistoryResponse): FeatureCollection {
+    // Prefer dedicated journal_pins so journals show even when dwell < 30 minutes.
+    val pins = if (history.journal_pins.isNotEmpty()) {
+        history.journal_pins
+    } else {
+        history.plot_points.flatMap { plot -> plot.journals }
+    }
+    val features = pins.map { journal ->
+        Feature.fromGeometry(Point.fromLngLat(journal.longitude, journal.latitude)).also {
+            it.addNumberProperty("entry_id", journal.entry_id)
+        }
+    }
+    return FeatureCollection.fromFeatures(features)
+}
+
+private fun ensureJournalPinImage(style: Style) {
+    if (style.getImage(JOURNAL_PIN_IMAGE) != null) return
+    style.addImage(JOURNAL_PIN_IMAGE, createRedPinBitmap())
+}
+
+private fun createRedPinBitmap(): Bitmap {
+    val width = 72
+    val height = 96
+    val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+    val canvas = Canvas(bitmap)
+    val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+    paint.color = Color.parseColor("#DC2626")
+    val cx = width / 2f
+    val cy = height * 0.38f
+    val radius = width * 0.30f
+    canvas.drawCircle(cx, cy, radius, paint)
+    val tip = Path().apply {
+        moveTo(cx - radius * 0.72f, cy + radius * 0.35f)
+        lineTo(cx, height * 0.95f)
+        lineTo(cx + radius * 0.72f, cy + radius * 0.35f)
+        close()
+    }
+    canvas.drawPath(tip, paint)
+    paint.color = Color.WHITE
+    canvas.drawCircle(cx, cy, radius * 0.38f, paint)
+    return bitmap
+}
+
 private fun fitToHistory(map: org.maplibre.android.maps.MapLibreMap, history: HistoryResponse) {
-    val points = history.plot_points.map { LatLng(it.latitude, it.longitude) }
+    val points = buildList {
+        addAll(history.plot_points.map { LatLng(it.latitude, it.longitude) })
+        addAll(history.journal_pins.map { LatLng(it.latitude, it.longitude) })
+    }
     if (points.isEmpty()) {
         map.animateCamera(CameraUpdateFactory.newLatLngZoom(LatLng(22.82, 86.22), 11.0))
         return
@@ -418,10 +486,16 @@ private fun handleMapClick(
     val journalFeature = journalHits.firstOrNull()
     if (journalFeature != null) {
         journalFeature.getNumberProperty("entry_id")?.toLong()?.let(onJournalClick)
-        journalFeature.getNumberProperty("plot_id")?.toLong()?.let(onPlotClick)
         return true
     }
-    val plotHits = map.queryRenderedFeatures(screen, LAYER_NIGHTS, LAYER_PLOT_RING, LAYER_PLOTS)
+    val plotHits = map.queryRenderedFeatures(
+        screen,
+        LAYER_NIGHTS,
+        LAYER_NIGHT_RING,
+        LAYER_NIGHT_OUTER,
+        LAYER_PLOT_RING,
+        LAYER_PLOTS
+    )
     plotHits.firstOrNull()?.getNumberProperty("plot_id")?.toLong()?.let {
         onPlotClick(it)
         return true
@@ -431,8 +505,12 @@ private fun handleMapClick(
 
 private const val SOURCE_TRACKS = "nomad-tracks"
 private const val SOURCE_PLOTS = "nomad-plots"
+private const val SOURCE_JOURNALS = "nomad-journals"
 private const val LAYER_PATH = "nomad-path"
 private const val LAYER_PLOT_RING = "nomad-plots-ring"
 private const val LAYER_PLOTS = "nomad-plots-dot"
 private const val LAYER_JOURNALS = "nomad-journals-layer"
-private const val LAYER_NIGHTS = "nomad-nights-layer"
+private const val LAYER_NIGHTS = "nomad-nights-dot"
+private const val LAYER_NIGHT_RING = "nomad-nights-ring"
+private const val LAYER_NIGHT_OUTER = "nomad-nights-outer"
+private const val JOURNAL_PIN_IMAGE = "nomad-journal-pin"

@@ -3,6 +3,8 @@ package dev.grixo.nomad.ui.main
 data class NearbyPlaceUi(
     val name: String,
     val category: String?,
+    val latitude: Double,
+    val longitude: Double,
     val distanceKm: Double?,
     val popularityScore: Int = 0
 )
