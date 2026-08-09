@@ -481,52 +481,51 @@ class PlaceService:
     ) -> list[dict[str, Any]]:
         """Legacy Places Nearby Search (maps.googleapis.com) — often already enabled."""
         timeout = httpx.Timeout(GOOGLE_PLACES_TIMEOUT_SECONDS, connect=3.0)
-        by_id: dict[str, dict[str, Any]] = {}
-        last_status: str | None = None
-        # Legacy allows one type per request; keep it to a few quick calls.
-        for place_type in ("tourist_attraction", "museum", "hindu_temple", "zoo"):
-            params = {
-                "location": f"{lat},{lon}",
-                "radius": str(NEARBY_RADIUS_M),
-                "type": place_type,
-                "key": api_key,
-            }
-            try:
-                with httpx.Client(timeout=timeout, follow_redirects=True) as client:
-                    resp = client.get(GOOGLE_PLACES_LEGACY_URL, params=params)
-            except httpx.TimeoutException:
-                last_status = "TIMEOUT"
-                continue
-            except httpx.HTTPError as exc:
-                last_status = str(exc)
-                continue
+        # One legacy call only — keep under Cloudflare/nginx budgets.
+        place_type = "tourist_attraction"
+        params = {
+            "location": f"{lat},{lon}",
+            "radius": str(NEARBY_RADIUS_M),
+            "type": place_type,
+            "key": api_key,
+        }
+        try:
+            with httpx.Client(timeout=timeout, follow_redirects=True) as client:
+                resp = client.get(GOOGLE_PLACES_LEGACY_URL, params=params)
+        except httpx.TimeoutException as exc:
+            raise HTTPException(
+                status_code=504,
+                detail=f"Legacy Places timed out after {GOOGLE_PLACES_TIMEOUT_SECONDS:.0f}s",
+            ) from exc
+        except httpx.HTTPError as exc:
+            raise HTTPException(
+                status_code=502, detail=f"Legacy Places unreachable: {exc}"
+            ) from exc
 
-            if resp.status_code >= 400:
-                last_status = self._google_error_detail(resp)
-                continue
+        if resp.status_code >= 400:
+            raise HTTPException(status_code=502, detail=self._google_error_detail(resp))
 
-            payload = resp.json()
-            status = str(payload.get("status") or "")
-            if status not in {"OK", "ZERO_RESULTS"}:
-                last_status = f"{status}: {payload.get('error_message') or status}"
-                # REQUEST_DENIED etc. — no point trying more types with same key.
-                if status in {"REQUEST_DENIED", "INVALID_REQUEST", "OVER_QUERY_LIMIT"}:
-                    raise HTTPException(status_code=502, detail=last_status)
-                continue
+        payload = resp.json()
+        status = str(payload.get("status") or "")
+        if status not in {"OK", "ZERO_RESULTS"}:
+            detail = f"{status}: {payload.get('error_message') or status}"
+            raise HTTPException(status_code=502, detail=detail)
 
-            for place in payload.get("results") or []:
-                name = place.get("name")
-                geometry = place.get("geometry") or {}
-                location = geometry.get("location") or {}
-                if not name or "lat" not in location or "lng" not in location:
-                    continue
-                elat = float(location["lat"])
-                elon = float(location["lng"])
-                if haversine_m(lat, lon, elat, elon) > NEARBY_RADIUS_M:
-                    continue
-                types = [str(t) for t in (place.get("types") or []) if t]
-                place_id = str(place.get("place_id") or f"{elat:.5f},{elon:.5f}")
-                item = {
+        results: list[dict[str, Any]] = []
+        for place in payload.get("results") or []:
+            name = place.get("name")
+            geometry = place.get("geometry") or {}
+            location = geometry.get("location") or {}
+            if not name or "lat" not in location or "lng" not in location:
+                continue
+            elat = float(location["lat"])
+            elon = float(location["lng"])
+            if haversine_m(lat, lon, elat, elon) > NEARBY_RADIUS_M:
+                continue
+            types = [str(t) for t in (place.get("types") or []) if t]
+            place_id = str(place.get("place_id") or f"{elat:.5f},{elon:.5f}")
+            results.append(
+                {
                     "name": name,
                     "category": place_type,
                     "latitude": elat,
@@ -544,13 +543,7 @@ class PlaceService:
                         "api": "places_legacy",
                     },
                 }
-                existing = by_id.get(place_id)
-                if existing is None or item["popularity_score"] > existing["popularity_score"]:
-                    by_id[place_id] = item
-
-        results = list(by_id.values())
-        if not results and last_status:
-            raise HTTPException(status_code=502, detail=last_status)
+            )
         results.sort(key=lambda x: -x["popularity_score"])
         return results
 
