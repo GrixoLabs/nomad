@@ -2,10 +2,6 @@ package dev.grixo.nomad.ui.main
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import androidx.work.Constraints
-import androidx.work.ExistingWorkPolicy
-import androidx.work.NetworkType
-import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dev.grixo.nomad.data.datastore.PreferenceManager
@@ -15,14 +11,16 @@ import dev.grixo.nomad.domain.model.OnboardingStatus
 import dev.grixo.nomad.domain.repository.DeviceRepository
 import dev.grixo.nomad.domain.repository.SignalRepository
 import dev.grixo.nomad.domain.repository.UserRepository
-import dev.grixo.nomad.worker.SyncWorker
+import dev.grixo.nomad.worker.SyncScheduler
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import java.time.Instant
 import java.time.LocalDateTime
+import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 import javax.inject.Inject
@@ -47,12 +45,17 @@ class MainViewModel @Inject constructor(
             checkBackendHealth()
             val enabled = preferenceManager.trackingEnabled.first()
             val notifVisible = preferenceManager.trackingNotificationVisible.first()
+            val lastUpload = preferenceManager.lastUploadEpochMs.first()
             _uiState.update {
                 it.copy(
                     isTracking = enabled,
                     notificationVisible = notifVisible,
-                    shouldAutoStartTracking = enabled
+                    shouldAutoStartTracking = enabled,
+                    lastUploadTime = formatUploadTime(lastUpload)
                 )
+            }
+            if (enabled) {
+                SyncScheduler.enqueuePeriodic(workManager)
             }
         }
         viewModelScope.launch {
@@ -63,6 +66,18 @@ class MainViewModel @Inject constructor(
         viewModelScope.launch {
             preferenceManager.trackingEnabled.collect { enabled ->
                 _uiState.update { it.copy(isTracking = enabled) }
+                if (enabled) {
+                    SyncScheduler.enqueuePeriodic(workManager)
+                } else {
+                    SyncScheduler.cancelPeriodic(workManager)
+                }
+            }
+        }
+        viewModelScope.launch {
+            preferenceManager.lastUploadEpochMs.collect { epochMs ->
+                if (epochMs != null) {
+                    _uiState.update { it.copy(lastUploadTime = formatUploadTime(epochMs)) }
+                }
             }
         }
         viewModelScope.launch {
@@ -98,16 +113,21 @@ class MainViewModel @Inject constructor(
                         batteryPercent = event.batteryPercent,
                         networkType = event.networkType,
                         lastUploadTime = if (event.uploaded) {
-                            LocalDateTime.now().format(DateTimeFormatter.ofPattern("HH:mm:ss"))
+                            formatUploadTime(System.currentTimeMillis())
                         } else {
                             it.lastUploadTime
-                        },
-                        isTracking = true
+                        }
                     )
                 }
                 refreshPlaceContext(event.latitude, event.longitude)
             }
         }
+    }
+
+    private fun formatUploadTime(epochMs: Long?): String {
+        if (epochMs == null || epochMs <= 0L) return "Never"
+        return LocalDateTime.ofInstant(Instant.ofEpochMilli(epochMs), ZoneId.systemDefault())
+            .format(DateTimeFormatter.ofPattern("HH:mm:ss"))
     }
 
     fun checkBackendHealth() {
@@ -135,9 +155,10 @@ class MainViewModel @Inject constructor(
     }
 
     fun setNotificationVisible(visible: Boolean) {
+        // Location FGS notification cannot be removed while tracking — keep it visible.
         viewModelScope.launch {
-            preferenceManager.setTrackingNotificationVisible(visible)
-            _uiState.update { it.copy(notificationVisible = visible) }
+            preferenceManager.setTrackingNotificationVisible(true)
+            _uiState.update { it.copy(notificationVisible = true) }
         }
     }
 
@@ -262,19 +283,7 @@ class MainViewModel @Inject constructor(
     }
 
     fun triggerManualSync() {
-        val constraints = Constraints.Builder()
-            .setRequiredNetworkType(NetworkType.CONNECTED)
-            .build()
-
-        val syncRequest = OneTimeWorkRequestBuilder<SyncWorker>()
-            .setConstraints(constraints)
-            .build()
-
-        workManager.enqueueUniqueWork(
-            "nomad_manual_sync",
-            ExistingWorkPolicy.REPLACE,
-            syncRequest
-        )
+        SyncScheduler.enqueueOnce(workManager)
         checkBackendHealth()
     }
 

@@ -529,19 +529,12 @@ fun MainScreen(
             }
 
             if (state.isTracking) {
-                TextButton(
-                    onClick = { onToggleNotification(!state.notificationVisible) },
+                Text(
+                    text = stringResource(R.string.tracking_notification_required),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = colors.onSurfaceVariant,
                     modifier = Modifier.align(Alignment.CenterHorizontally)
-                ) {
-                    Text(
-                        text = if (state.notificationVisible) {
-                            stringResource(R.string.tracking_notification_hide)
-                        } else {
-                            stringResource(R.string.tracking_notification_show)
-                        },
-                        color = colors.primary
-                    )
-                }
+                )
             }
 
             OutlinedButton(

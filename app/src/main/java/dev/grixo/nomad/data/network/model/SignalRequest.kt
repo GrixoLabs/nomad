@@ -12,7 +12,7 @@ data class SignalRequest(
     val altitude_m: Double,
     val speed_mps: Float,
     val bearing_deg: Float,
-    val battery_percent: Int,
+    val battery_percent: Int? = null,
     val charging: Boolean,
     val battery_temperature: Float,
     val network_type: String,
