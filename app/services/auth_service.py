@@ -57,6 +57,12 @@ class AuthService:
             user.journal_enabled = False
 
     def register(self, db: Session, request: RegisterRequest) -> User:
+        """
+        Create a pending user and send OTP in one shot.
+
+        If OTP delivery fails, the user (and any OTP row) is rolled back so a
+        failed registration does not leave a row in nomad.users.
+        """
         email = str(request.email).lower() if request.email else None
         phone = request.phone_number
 
@@ -89,7 +95,41 @@ class AuthService:
             account_status="pending",
             journal_enabled=False,
         )
-        return self.users.create(db, user)
+
+        # Flush only — commit after OTP is successfully handed to the provider.
+        db.add(user)
+        db.flush()
+
+        channel = "EMAIL" if email else "SMS"
+        otp = generate_otp()
+        code = VerificationCode(
+            user_id=user.user_id,
+            verification_type=channel,
+            otp_hash=hash_otp(otp),
+            expires_at=otp_expiry(),
+        )
+        db.add(code)
+        db.flush()
+
+        try:
+            if email:
+                self.email.send_otp(email, otp)
+            else:
+                assert phone is not None
+                self.sms.send_otp(phone, otp)
+        except Exception as exc:  # noqa: BLE001
+            db.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=(
+                    "Could not send verification code. "
+                    "Registration was not saved — try again."
+                ),
+            ) from exc
+
+        db.commit()
+        db.refresh(user)
+        return user
 
     def _enforce_rate_limit(
         self, db: Session, user_id, verification_type: str
@@ -119,8 +159,18 @@ class AuthService:
             otp_hash=hash_otp(otp),
             expires_at=otp_expiry(),
         )
-        self.codes.create(db, code)
-        self.email.send_otp(user.email, otp)  # type: ignore[arg-type]
+        # Flush OTP row; only commit after provider accepts the send.
+        db.add(code)
+        db.flush()
+        try:
+            self.email.send_otp(user.email, otp)  # type: ignore[arg-type]
+        except Exception as exc:  # noqa: BLE001
+            db.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail="Could not send verification email. Try again.",
+            ) from exc
+        db.commit()
 
     def send_sms_otp(self, db: Session, request: SendSmsOtpRequest) -> None:
         user = self.users.get_by_phone(db, request.phone_number)
@@ -135,8 +185,17 @@ class AuthService:
             otp_hash=hash_otp(otp),
             expires_at=otp_expiry(),
         )
-        self.codes.create(db, code)
-        self.sms.send_otp(user.phone_number, otp)  # type: ignore[arg-type]
+        db.add(code)
+        db.flush()
+        try:
+            self.sms.send_otp(user.phone_number, otp)  # type: ignore[arg-type]
+        except Exception as exc:  # noqa: BLE001
+            db.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail="Could not send verification SMS. Try again.",
+            ) from exc
+        db.commit()
 
     def _verify_code(
         self,
@@ -260,17 +319,25 @@ class AuthService:
             otp_hash=hash_otp(otp),
             expires_at=otp_expiry(),
         )
-        self.codes.create(db, code)
+        db.add(code)
+        db.flush()
 
-        # Prefer the channel the client asked for; otherwise use whichever is on file.
-        if request.email and user.email:
-            self.email.send_otp(user.email, otp)
-        elif request.phone_number and user.phone_number:
-            self.sms.send_otp(user.phone_number, otp)
-        elif user.email:
-            self.email.send_otp(user.email, otp)
-        elif user.phone_number:
-            self.sms.send_otp(user.phone_number, otp)
+        try:
+            if request.email and user.email:
+                self.email.send_otp(user.email, otp)
+            elif request.phone_number and user.phone_number:
+                self.sms.send_otp(user.phone_number, otp)
+            elif user.email:
+                self.email.send_otp(user.email, otp)
+            elif user.phone_number:
+                self.sms.send_otp(user.phone_number, otp)
+        except Exception as exc:  # noqa: BLE001
+            db.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail="Could not send reset code. Try again.",
+            ) from exc
+        db.commit()
 
     def reset_password(self, db: Session, request: ResetPasswordRequest) -> None:
         email = str(request.email).lower() if request.email else None

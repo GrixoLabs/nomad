@@ -4,9 +4,26 @@ from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, mo
 
 
 def _normalize_phone(value: str | None) -> str | None:
+    """Normalize to E.164-ish form for Twilio (+countrycode…)."""
     if value is None:
         return None
-    cleaned = "".join(ch for ch in value.strip() if ch.isdigit() or ch == "+")
+    raw = value.strip()
+    if not raw:
+        return None
+    # Keep leading +; strip spaces/dashes/parens.
+    cleaned = "".join(ch for ch in raw if ch.isdigit() or ch == "+")
+    if cleaned.startswith("00"):
+        cleaned = "+" + cleaned[2:]
+    digits = "".join(ch for ch in cleaned if ch.isdigit())
+    if cleaned.startswith("+"):
+        # Already international
+        return f"+{digits}" if len(digits) >= 8 else None
+    # Common India local 10-digit mobiles → +91
+    if len(digits) == 10 and digits[0] in "6789":
+        return f"+91{digits}"
+    # Already includes country code without +
+    if len(digits) >= 11:
+        return f"+{digits}"
     return cleaned or None
 
 
