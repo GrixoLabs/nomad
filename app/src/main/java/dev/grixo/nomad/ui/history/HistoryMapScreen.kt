@@ -7,14 +7,20 @@ import android.graphics.Paint
 import android.graphics.Path
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -24,6 +30,7 @@ import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.SelectableDates
@@ -39,6 +46,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -217,31 +225,47 @@ fun HistoryMapScreen(
             modifier = Modifier
                 .weight(1f)
                 .fillMaxWidth()
-                .padding(12.dp)
+                .padding(horizontal = 12.dp, vertical = 8.dp)
         ) {
-            Box(modifier = Modifier.fillMaxSize()) {
-                when {
-                    state.loading && state.history == null -> {
-                        CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
-                    }
-                    state.errorMessage != null && state.history == null -> {
-                        Text(
-                            state.errorMessage,
-                            color = colors.error,
-                            modifier = Modifier.align(Alignment.Center).padding(16.dp)
-                        )
-                    }
-                    state.styleUrl != null || state.tileUrlTemplate != null -> {
-                        MapLibreHistoryMap(
-                            styleUrl = state.styleUrl,
-                            tileUrlTemplate = state.tileUrlTemplate,
-                            attribution = state.attribution,
-                            history = state.history ?: HistoryResponse(days = state.days),
-                            onPlotClick = onSelectPlot,
-                            onJournalClick = onSelectJournal
-                        )
+            Column(modifier = Modifier.fillMaxSize()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f)
+                        .clip(RoundedCornerShape(16.dp))
+                ) {
+                    when {
+                        state.loading && state.history == null -> {
+                            CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
+                        }
+                        state.errorMessage != null && state.history == null -> {
+                            Text(
+                                state.errorMessage,
+                                color = colors.error,
+                                modifier = Modifier.align(Alignment.Center).padding(16.dp)
+                            )
+                        }
+                        state.styleUrl != null || state.tileUrlTemplate != null -> {
+                            MapLibreHistoryMap(
+                                styleUrl = state.styleUrl,
+                                tileUrlTemplate = state.tileUrlTemplate,
+                                attribution = state.attribution,
+                                history = state.history ?: HistoryResponse(days = state.days),
+                                onPlotClick = onSelectPlot,
+                                onJournalClick = onSelectJournal
+                            )
+                        }
                     }
                 }
+
+                JournalEntriesTable(
+                    rows = state.journalRows,
+                    onRowClick = onSelectJournal,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f)
+                        .padding(top = 10.dp)
+                )
             }
         }
 
@@ -289,6 +313,131 @@ fun HistoryMapScreen(
                         )
                         TextButton(onClick = onNextJournal) {
                             Text(">", color = colors.primary)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun JournalEntriesTable(
+    rows: List<JournalTableRow>,
+    onRowClick: (Long) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val colors = MaterialTheme.colorScheme
+    Column(modifier = modifier) {
+        Text(
+            "Journal entries",
+            style = MaterialTheme.typography.titleMedium,
+            color = colors.onBackground,
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.padding(bottom = 6.dp)
+        )
+
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .clip(RoundedCornerShape(14.dp))
+                .border(1.dp, colors.outline.copy(alpha = 0.35f), RoundedCornerShape(14.dp))
+                .background(colors.surface)
+        ) {
+            // Header
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(colors.surfaceVariant.copy(alpha = 0.55f))
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    "Date",
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.SemiBold,
+                    color = colors.onSurface,
+                    modifier = Modifier.width(104.dp)
+                )
+                Box(
+                    modifier = Modifier
+                        .width(1.dp)
+                        .height(16.dp)
+                        .background(colors.outline.copy(alpha = 0.4f))
+                )
+                Text(
+                    "Journal entry",
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.SemiBold,
+                    color = colors.onSurface,
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(start = 12.dp)
+                )
+            }
+            HorizontalDivider(color = colors.outline.copy(alpha = 0.35f))
+
+            if (rows.isEmpty()) {
+                Text(
+                    "No journal entries in this range.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = colors.onSurfaceVariant,
+                    modifier = Modifier.padding(16.dp)
+                )
+            } else {
+                LazyColumn(modifier = Modifier.fillMaxSize()) {
+                    itemsIndexed(
+                        items = rows,
+                        key = { _, row -> row.entryId }
+                    ) { index, row ->
+                        if (row.startsDayGroup && index > 0) {
+                            // Clear segregation between different dates.
+                            HorizontalDivider(
+                                thickness = 2.dp,
+                                color = colors.outline.copy(alpha = 0.45f)
+                            )
+                        } else if (index > 0) {
+                            HorizontalDivider(
+                                thickness = 1.dp,
+                                color = colors.outline.copy(alpha = 0.18f)
+                            )
+                        }
+
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(
+                                    if (row.startsDayGroup) {
+                                        colors.primary.copy(alpha = 0.04f)
+                                    } else {
+                                        colors.surface
+                                    }
+                                )
+                                .clickable { onRowClick(row.entryId) }
+                                .padding(horizontal = 12.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.Top
+                        ) {
+                            Text(
+                                text = row.dateLabel,
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = if (row.showDate) FontWeight.SemiBold else FontWeight.Normal,
+                                color = colors.onSurface,
+                                modifier = Modifier.width(104.dp)
+                            )
+                            Box(
+                                modifier = Modifier
+                                    .width(1.dp)
+                                    .height(18.dp)
+                                    .background(colors.outline.copy(alpha = 0.25f))
+                            )
+                            Text(
+                                text = row.entryText,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = colors.onSurface,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .padding(start = 12.dp)
+                            )
                         }
                     }
                 }
