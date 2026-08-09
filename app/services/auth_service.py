@@ -60,6 +60,9 @@ class AuthService:
         """
         Create a pending user and send OTP in one shot.
 
+        When both email and phone are provided, email is the verification
+        channel (phone is stored on the profile but SMS is not sent).
+
         If OTP delivery fails, the user (and any OTP row) is rolled back so a
         failed registration does not leave a row in nomad.users.
         """
@@ -100,7 +103,9 @@ class AuthService:
         db.add(user)
         db.flush()
 
-        channel = "EMAIL" if email else "SMS"
+        # Email wins when both are present.
+        use_email = email is not None
+        channel = "EMAIL" if use_email else "SMS"
         otp = generate_otp()
         code = VerificationCode(
             user_id=user.user_id,
@@ -112,19 +117,26 @@ class AuthService:
         db.flush()
 
         try:
-            if email:
-                self.email.send_otp(email, otp)
+            if use_email:
+                self.email.send_otp(email, otp)  # type: ignore[arg-type]
             else:
                 assert phone is not None
                 self.sms.send_otp(phone, otp)
         except Exception as exc:  # noqa: BLE001
             db.rollback()
+            if use_email:
+                detail = (
+                    "Could not send verification email (email provider error). "
+                    "Registration was not saved — try again."
+                )
+            else:
+                detail = (
+                    "Could not send verification SMS (Twilio error). "
+                    "Registration was not saved — try again."
+                )
             raise HTTPException(
                 status_code=status.HTTP_502_BAD_GATEWAY,
-                detail=(
-                    "Could not send verification code. "
-                    "Registration was not saved — try again."
-                ),
+                detail=detail,
             ) from exc
 
         db.commit()
