@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
-"""Diagnose Google Places Nearby from this host (bypasses Cloudflare).
+"""Diagnose Google Places from this host (bypasses Cloudflare).
+
+Tests Places API (New) and legacy Places Nearby Search.
 
   python scripts/test_google_places.py
   python scripts/test_google_places.py --lat 22.82 --lon 86.22
@@ -20,7 +22,8 @@ import httpx
 
 from app.config.settings import get_settings
 
-URL = "https://places.googleapis.com/v1/places:searchNearby"
+NEW_URL = "https://places.googleapis.com/v1/places:searchNearby"
+LEGACY_URL = "https://maps.googleapis.com/maps/api/place/nearbysearch/json"
 
 
 def main() -> int:
@@ -36,8 +39,11 @@ def main() -> int:
         return 2
 
     print(f"key_loaded=yes key_suffix=...{key[-4:]} lat={args.lat} lon={args.lon}")
+    timeout = httpx.Timeout(6.0, connect=3.0)
+
+    print("\n=== Places API (New) ===")
     body = {
-        "includedTypes": ["tourist_attraction", "museum", "park"],
+        "includedTypes": ["tourist_attraction"],
         "maxResultCount": 5,
         "rankPreference": "POPULARITY",
         "locationRestriction": {
@@ -56,24 +62,37 @@ def main() -> int:
         ),
     }
     try:
-        with httpx.Client(timeout=httpx.Timeout(8.0, connect=5.0)) as client:
-            resp = client.post(URL, json=body, headers=headers)
+        with httpx.Client(timeout=timeout, follow_redirects=True) as client:
+            resp = client.post(NEW_URL, json=body, headers=headers)
+        print(f"status={resp.status_code}")
+        print(resp.text[:1200])
     except Exception as exc:  # noqa: BLE001
-        print(f"FAIL: transport error: {exc}")
+        print(f"FAIL transport: {exc}")
+
+    print("\n=== Legacy Places Nearby Search ===")
+    params = {
+        "location": f"{args.lat},{args.lon}",
+        "radius": "25000",
+        "type": "tourist_attraction",
+        "key": key,
+    }
+    try:
+        with httpx.Client(timeout=timeout, follow_redirects=True) as client:
+            resp = client.get(LEGACY_URL, params=params)
+        print(f"status={resp.status_code}")
+        payload = resp.json()
+        print(json.dumps({
+            "status": payload.get("status"),
+            "error_message": payload.get("error_message"),
+            "results": [
+                {"name": r.get("name"), "rating": r.get("rating")}
+                for r in (payload.get("results") or [])[:5]
+            ],
+        }, indent=2))
+    except Exception as exc:  # noqa: BLE001
+        print(f"FAIL transport: {exc}")
         return 3
 
-    print(f"status={resp.status_code}")
-    try:
-        payload = resp.json()
-    except Exception:  # noqa: BLE001
-        print(resp.text[:500])
-        return 4
-
-    print(json.dumps(payload, indent=2)[:2000])
-    if resp.status_code >= 400:
-        return 5
-    places = payload.get("places") or []
-    print(f"OK: places={len(places)}")
     return 0
 
 

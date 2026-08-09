@@ -30,8 +30,8 @@ WEATHER_CACHE_MAX_AGE = timedelta(hours=4)
 
 NEARBY_RADIUS_M = 25_000
 GOOGLE_PLACES_NEARBY_URL = "https://places.googleapis.com/v1/places:searchNearby"
-# Single Nearby Search request — keep this list modest so the edge proxy
-# (Cloudflare/nginx) does not 504 while we wait on Google.
+GOOGLE_PLACES_LEGACY_URL = "https://maps.googleapis.com/maps/api/place/nearbysearch/json"
+# Prefer a small type set; New API first, legacy Places Nearby as fallback.
 GOOGLE_POI_TYPES = (
     "tourist_attraction",
     "museum",
@@ -40,7 +40,7 @@ GOOGLE_POI_TYPES = (
     "park",
     "amusement_park",
 )
-GOOGLE_PLACES_TIMEOUT_SECONDS = 8.0
+GOOGLE_PLACES_TIMEOUT_SECONDS = 6.0
 _NAME_STOPWORDS = (
     "zoological",
     "park",
@@ -349,7 +349,7 @@ class PlaceService:
             return data
 
     def _fetch_google_places(self, lat: float, lon: float) -> list[dict[str, Any]]:
-        """Famous / popular POIs within 25 km via Google Places Nearby Search (New)."""
+        """Fetch POIs: Places API (New), then legacy Nearby Search fallback."""
         api_key = self.settings.google_api_key
         if not api_key:
             raise HTTPException(
@@ -357,8 +357,44 @@ class PlaceService:
                 detail="GOOGLE_MAP_API is not configured on the server",
             )
 
+        errors: list[str] = []
+        try:
+            results = self._fetch_google_places_new(lat, lon, api_key)
+            if results:
+                return results
+            errors.append("Places API (New) returned 0 places")
+        except HTTPException as exc:
+            errors.append(f"Places API (New): {exc.detail}")
+            logger.warning("Places API (New) failed: %s", exc.detail)
+
+        try:
+            results = self._fetch_google_places_legacy(lat, lon, api_key)
+            if results:
+                logger.info(
+                    "Using legacy Places Nearby fallback (%s places)", len(results)
+                )
+                return results
+            errors.append("Legacy Places Nearby returned 0 places")
+        except HTTPException as exc:
+            errors.append(f"Legacy Places: {exc.detail}")
+            logger.warning("Legacy Places Nearby failed: %s", exc.detail)
+
+        raise HTTPException(
+            status_code=502,
+            detail=(
+                "Google Places failed. "
+                + " | ".join(errors)
+                + ". Enable Places API (New) and/or Places API, use a server key "
+                "(not Android-package restricted), and ensure billing is on."
+            ),
+        )
+
+    def _fetch_google_places_new(
+        self, lat: float, lon: float, api_key: str
+    ) -> list[dict[str, Any]]:
         body = {
-            "includedTypes": list(GOOGLE_POI_TYPES),
+            # One broad type avoids invalid multi-type edge cases.
+            "includedTypes": ["tourist_attraction"],
             "maxResultCount": 20,
             "rankPreference": "POPULARITY",
             "locationRestriction": {
@@ -376,42 +412,25 @@ class PlaceService:
                 "places.types,places.rating,places.userRatingCount"
             ),
         }
-        timeout = httpx.Timeout(GOOGLE_PLACES_TIMEOUT_SECONDS, connect=5.0)
+        timeout = httpx.Timeout(GOOGLE_PLACES_TIMEOUT_SECONDS, connect=3.0)
         try:
             with httpx.Client(timeout=timeout, follow_redirects=True) as client:
                 resp = client.post(
                     GOOGLE_PLACES_NEARBY_URL, json=body, headers=headers
                 )
         except httpx.TimeoutException as exc:
-            logger.warning("Google Places timed out after %ss", GOOGLE_PLACES_TIMEOUT_SECONDS)
             raise HTTPException(
                 status_code=504,
-                detail=(
-                    f"Google Places timed out after {GOOGLE_PLACES_TIMEOUT_SECONDS:.0f}s. "
-                    "Check server egress to places.googleapis.com and that GOOGLE_MAP_API "
-                    "is a server key with Places API (New) enabled."
-                ),
+                detail=f"Places API (New) timed out after {GOOGLE_PLACES_TIMEOUT_SECONDS:.0f}s",
             ) from exc
         except httpx.HTTPError as exc:
-            logger.warning("Google Places transport error: %s", exc)
             raise HTTPException(
-                status_code=502,
-                detail=f"Google Places unreachable: {exc}",
+                status_code=502, detail=f"Places API (New) unreachable: {exc}"
             ) from exc
 
         if resp.status_code >= 400:
-            detail = self._google_error_detail(resp)
-            logger.warning(
-                "Google Places error status=%s detail=%s",
-                resp.status_code,
-                detail,
-            )
             raise HTTPException(
-                status_code=502,
-                detail=(
-                    f"{detail}. If the key is Android-restricted, use a separate "
-                    "server key (IP / unrestricted) for GOOGLE_MAP_API."
-                ),
+                status_code=502, detail=self._google_error_detail(resp)
             )
 
         payload = resp.json()
@@ -434,8 +453,6 @@ class PlaceService:
                 types[0] if types else "tourist_attraction",
             )
             place_id = str(place.get("id") or f"{elat:.5f},{elon:.5f}")
-            rating = place.get("rating")
-            rating_count = place.get("userRatingCount") or 0
             results.append(
                 {
                     "name": name,
@@ -444,15 +461,96 @@ class PlaceService:
                     "longitude": elon,
                     "source": "google_places",
                     "source_id": place_id[:80],
-                    "popularity_score": self._google_popularity_score(rating, rating_count),
+                    "popularity_score": self._google_popularity_score(
+                        place.get("rating"), place.get("userRatingCount") or 0
+                    ),
                     "raw": {
                         "id": place_id,
                         "types": types,
-                        "rating": rating,
-                        "userRatingCount": rating_count,
+                        "rating": place.get("rating"),
+                        "userRatingCount": place.get("userRatingCount"),
+                        "api": "places_new",
                     },
                 }
             )
+        results.sort(key=lambda x: -x["popularity_score"])
+        return results
+
+    def _fetch_google_places_legacy(
+        self, lat: float, lon: float, api_key: str
+    ) -> list[dict[str, Any]]:
+        """Legacy Places Nearby Search (maps.googleapis.com) — often already enabled."""
+        timeout = httpx.Timeout(GOOGLE_PLACES_TIMEOUT_SECONDS, connect=3.0)
+        by_id: dict[str, dict[str, Any]] = {}
+        last_status: str | None = None
+        # Legacy allows one type per request; keep it to a few quick calls.
+        for place_type in ("tourist_attraction", "museum", "hindu_temple", "zoo"):
+            params = {
+                "location": f"{lat},{lon}",
+                "radius": str(NEARBY_RADIUS_M),
+                "type": place_type,
+                "key": api_key,
+            }
+            try:
+                with httpx.Client(timeout=timeout, follow_redirects=True) as client:
+                    resp = client.get(GOOGLE_PLACES_LEGACY_URL, params=params)
+            except httpx.TimeoutException:
+                last_status = "TIMEOUT"
+                continue
+            except httpx.HTTPError as exc:
+                last_status = str(exc)
+                continue
+
+            if resp.status_code >= 400:
+                last_status = self._google_error_detail(resp)
+                continue
+
+            payload = resp.json()
+            status = str(payload.get("status") or "")
+            if status not in {"OK", "ZERO_RESULTS"}:
+                last_status = f"{status}: {payload.get('error_message') or status}"
+                # REQUEST_DENIED etc. — no point trying more types with same key.
+                if status in {"REQUEST_DENIED", "INVALID_REQUEST", "OVER_QUERY_LIMIT"}:
+                    raise HTTPException(status_code=502, detail=last_status)
+                continue
+
+            for place in payload.get("results") or []:
+                name = place.get("name")
+                geometry = place.get("geometry") or {}
+                location = geometry.get("location") or {}
+                if not name or "lat" not in location or "lng" not in location:
+                    continue
+                elat = float(location["lat"])
+                elon = float(location["lng"])
+                if haversine_m(lat, lon, elat, elon) > NEARBY_RADIUS_M:
+                    continue
+                types = [str(t) for t in (place.get("types") or []) if t]
+                place_id = str(place.get("place_id") or f"{elat:.5f},{elon:.5f}")
+                item = {
+                    "name": name,
+                    "category": place_type,
+                    "latitude": elat,
+                    "longitude": elon,
+                    "source": "google_places",
+                    "source_id": place_id[:80],
+                    "popularity_score": self._google_popularity_score(
+                        place.get("rating"), place.get("user_ratings_total") or 0
+                    ),
+                    "raw": {
+                        "id": place_id,
+                        "types": types,
+                        "rating": place.get("rating"),
+                        "userRatingCount": place.get("user_ratings_total"),
+                        "api": "places_legacy",
+                    },
+                }
+                existing = by_id.get(place_id)
+                if existing is None or item["popularity_score"] > existing["popularity_score"]:
+                    by_id[place_id] = item
+
+        results = list(by_id.values())
+        if not results and last_status:
+            raise HTTPException(status_code=502, detail=last_status)
         results.sort(key=lambda x: -x["popularity_score"])
         return results
 
@@ -470,6 +568,10 @@ class PlaceService:
             if status:
                 return f"{status}: {message}"
             return str(message)[:300]
+        # Legacy style
+        if payload.get("status"):
+            msg = payload.get("error_message") or payload.get("status")
+            return f"{payload.get('status')}: {msg}"
         return str(payload)[:300]
 
     @staticmethod
