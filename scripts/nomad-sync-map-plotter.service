@@ -1,0 +1,12 @@
+[Unit]
+Description=Sync Nomad map_plotter from device_signals / journals
+After=network.target postgresql.service
+
+[Service]
+Type=oneshot
+# Override NOMAD_HOME via: /etc/systemd/system/nomad-sync-map-plotter.service.d/override.conf
+Environment=NOMAD_HOME=/opt/nomad
+WorkingDirectory=${NOMAD_HOME}
+EnvironmentFile=-${NOMAD_HOME}/.env
+ExecStart=${NOMAD_HOME}/.venv/bin/python ${NOMAD_HOME}/scripts/compute_map_plotter.py
+Nice=10
