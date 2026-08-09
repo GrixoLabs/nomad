@@ -2,36 +2,49 @@
 
 Replace the files below with your exports. Keep the **exact filenames**.
 
-## 1) Launch icons (home screen / “favicon” for the app)
+## 1) Launch screen icons (splash)
 
-Android does not use a web favicon. The launcher icon *is* the app icon.
-
-| Variant | Put files here |
-|--------|-----------------|
-| **Light / default** | `app/src/main/res/mipmap-mdpi/ic_launcher.webp` (+ `ic_launcher_round.webp`) |
-| | same names in `mipmap-hdpi`, `mipmap-xhdpi`, `mipmap-xxhdpi`, `mipmap-xxxhdpi` |
-| **Dark** | `app/src/main/res/mipmap-night-mdpi/ic_launcher.webp` (+ round) |
-| | same for `mipmap-night-hdpi` … `mipmap-night-xxxhdpi` |
-| Adaptive XML | `app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml` |
-| Foreground layer | `app/src/main/res/drawable/ic_launcher_foreground.xml` (or `.png`) |
-| Background layer | `app/src/main/res/drawable/ic_launcher_background.xml` |
-
-**Easiest:** Android Studio → `File → New → Image Asset` → Launcher Icons, then copy night variants into `mipmap-night-*`.
-
-Suggested sizes (px): mdpi 48, hdpi 72, xhdpi 96, xxhdpi 144, xxxhdpi 192.
-
-## 2) Registration page logos (wired)
+Full brand lockup: emblem + **NOMAD** + tagline *Your Journey. Protected.*
 
 | Variant | Path |
 |--------|------|
-| Light | `app/src/main/res/drawable/logo_nomad.png` *(from your lighticon)* |
-| Dark | `app/src/main/res/drawable-night/logo_nomad.png` *(from your darkicon)* |
+| **Light** | `app/src/main/res/drawable/splash_nomad.png` |
+| **Dark** | `app/src/main/res/drawable-night/splash_nomad.png` |
 
-Registration loads `@drawable/logo_nomad`; Android picks day/night automatically.
+`SplashScreen` loads `@drawable/splash_nomad`; Android picks day/night automatically.
 
-**Note:** Android resource names cannot contain hyphens or capitals (`lighticon-Photoroom.png` is invalid). Always use `logo_nomad.png` / `ic_launcher.png`.
+## 2) Home-screen launcher icons
 
-## 3) Web favicon (backend / website only)
+| Variant | Put files here |
+|--------|----------------|
+| **Light / default** | `app/src/main/res/mipmap-mdpi/ic_launcher.png` (+ `ic_launcher_round.png`) |
+| | same names in `mipmap-hdpi` … `mipmap-xxxhdpi` |
+| **Dark** | `app/src/main/res/mipmap-night-mdpi/ic_launcher.png` (+ round) |
+| | same for `mipmap-night-hdpi` … `mipmap-night-xxxhdpi` |
+| Adaptive XML | `app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml` |
+| Foreground | `drawable/ic_launcher_foreground.png` / `drawable-night/…` |
+| Background | `drawable/ic_launcher_background.png` / `drawable-night/…` |
+
+Suggested legacy sizes (px): mdpi 48, hdpi 72, xhdpi 96, xxhdpi 144, xxxhdpi 192.
+
+Light adaptive background: `#F8FAFC`. Dark: `#000000`.
+
+## 3) In-app logos (header / registration)
+
+Emblem + **NOMAD** wordmark (no tagline).
+
+| Variant | Path |
+|--------|------|
+| Light | `app/src/main/res/drawable/logo_nomad.png` |
+| Dark | `app/src/main/res/drawable-night/logo_nomad.png` |
+
+`BrandLogo` / registration load `@drawable/logo_nomad`.
+
+**Note:** Android resource names cannot contain hyphens or capitals
+(`lighticon-Photoroom.png` is invalid). Always use `logo_nomad.png` /
+`splash_nomad.png` / `ic_launcher.png`.
+
+## 4) Web favicon (backend / website only)
 
 Not used by the Android APK. For docs/site:
 

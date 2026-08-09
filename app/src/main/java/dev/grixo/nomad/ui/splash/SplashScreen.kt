@@ -4,15 +4,11 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.widthIn
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -22,11 +18,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import dev.grixo.nomad.R
 import kotlinx.coroutines.delay
@@ -41,7 +35,7 @@ fun SplashScreen(onFinished: () -> Unit) {
         animationSpec = tween(900),
         label = "splash_alpha"
     )
-    val colors = MaterialTheme.colorScheme
+    val splashBackground = if (isSystemInDarkTheme()) Color.Black else Color.White
 
     LaunchedEffect(Unit) {
         visible = true
@@ -49,45 +43,20 @@ fun SplashScreen(onFinished: () -> Unit) {
         onFinished()
     }
 
-    Column(
+    Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(
-                Brush.verticalGradient(
-                    listOf(
-                        colors.background,
-                        colors.primary.copy(alpha = 0.18f),
-                        colors.surface
-                    )
-                )
-            )
-            .padding(32.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
+            .background(splashBackground)
+            .padding(horizontal = 40.dp, vertical = 48.dp),
+        contentAlignment = Alignment.Center
     ) {
         Image(
-            painter = painterResource(R.drawable.logo_nomad),
+            painter = painterResource(R.drawable.splash_nomad),
             contentDescription = "Nomad",
             modifier = Modifier
                 .alpha(alpha)
-                .height(112.dp)
-                .widthIn(max = 300.dp),
+                .fillMaxWidth(0.82f),
             contentScale = ContentScale.Fit
-        )
-        Spacer(modifier = Modifier.height(16.dp))
-        Text(
-            text = stringResource(R.string.app_name).uppercase(),
-            style = MaterialTheme.typography.headlineMedium,
-            color = colors.onBackground,
-            fontWeight = FontWeight.Bold,
-            modifier = Modifier.alpha(alpha)
-        )
-        Spacer(modifier = Modifier.height(8.dp))
-        Text(
-            text = stringResource(R.string.tagline),
-            style = MaterialTheme.typography.bodyLarge,
-            color = colors.onSurfaceVariant,
-            modifier = Modifier.alpha(alpha)
         )
     }
 }
