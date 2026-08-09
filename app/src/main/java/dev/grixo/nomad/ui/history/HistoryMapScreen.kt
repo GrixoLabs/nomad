@@ -30,6 +30,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -66,8 +67,10 @@ fun HistoryMapRoute(
         onClose = onClose,
         onRefresh = viewModel::reload,
         onDismissDetail = viewModel::dismissDetail,
+        onSelectPlot = viewModel::selectPlot,
         onSelectJournal = viewModel::selectJournal,
-        onSelectNight = viewModel::selectNight
+        onPrevJournal = viewModel::prevJournal,
+        onNextJournal = viewModel::nextJournal
     )
 }
 
@@ -79,8 +82,10 @@ fun HistoryMapScreen(
     onClose: () -> Unit,
     onRefresh: () -> Unit,
     onDismissDetail: () -> Unit,
+    onSelectPlot: (Long) -> Unit,
     onSelectJournal: (Long) -> Unit,
-    onSelectNight: (Long) -> Unit
+    onPrevJournal: () -> Unit,
+    onNextJournal: () -> Unit
 ) {
     val colors = MaterialTheme.colorScheme
     Column(
@@ -144,8 +149,8 @@ fun HistoryMapScreen(
                             tileUrlTemplate = state.tileUrlTemplate,
                             attribution = state.attribution,
                             history = state.history ?: HistoryResponse(days = state.days),
-                            onJournalClick = onSelectJournal,
-                            onNightClick = onSelectNight
+                            onPlotClick = onSelectPlot,
+                            onJournalClick = onSelectJournal
                         )
                     }
                 }
@@ -156,7 +161,7 @@ fun HistoryMapScreen(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .heightIn(max = 220.dp)
+                    .heightIn(max = 260.dp)
                     .background(colors.surface, RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp))
                     .padding(16.dp)
                     .verticalScroll(rememberScrollState())
@@ -166,6 +171,7 @@ fun HistoryMapScreen(
                         title,
                         style = MaterialTheme.typography.titleMedium,
                         color = colors.onSurface,
+                        fontWeight = FontWeight.SemiBold,
                         modifier = Modifier.weight(1f)
                     )
                     TextButton(onClick = onDismissDetail) {
@@ -177,6 +183,27 @@ fun HistoryMapScreen(
                     style = MaterialTheme.typography.bodyMedium,
                     color = colors.onSurface
                 )
+                if (state.journalCarousel.size > 1) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        TextButton(onClick = onPrevJournal) {
+                            Text("<", color = colors.primary)
+                        }
+                        Text(
+                            "${state.journalIndex + 1} / ${state.journalCarousel.size}",
+                            color = colors.onSurfaceVariant,
+                            style = MaterialTheme.typography.labelLarge
+                        )
+                        TextButton(onClick = onNextJournal) {
+                            Text(">", color = colors.primary)
+                        }
+                    }
+                }
             }
         }
     }
@@ -188,8 +215,8 @@ private fun MapLibreHistoryMap(
     tileUrlTemplate: String?,
     attribution: String,
     history: HistoryResponse,
-    onJournalClick: (Long) -> Unit,
-    onNightClick: (Long) -> Unit
+    onPlotClick: (Long) -> Unit,
+    onJournalClick: (Long) -> Unit
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -209,7 +236,6 @@ private fun MapLibreHistoryMap(
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
-        // If already past CREATE, bring MapView up.
         mapView.onCreate(null)
         mapView.onStart()
         mapView.onResume()
@@ -239,7 +265,7 @@ private fun MapLibreHistoryMap(
                         addHistoryLayers(style, history)
                         fitToHistory(map, history)
                         map.addOnMapClickListener { point ->
-                            handleMapClick(map, point, onJournalClick, onNightClick)
+                            handleMapClick(map, point, onPlotClick, onJournalClick)
                         }
                     }
                 }
@@ -281,57 +307,54 @@ private fun addHistoryLayers(style: Style, history: HistoryResponse) {
     if (style.getSource(SOURCE_TRACKS) == null) {
         style.addSource(GeoJsonSource(SOURCE_TRACKS, trackCollection(history)))
         style.addLayer(
-            LineLayer(LAYER_IDLE, SOURCE_TRACKS).withProperties(
+            LineLayer(LAYER_PATH, SOURCE_TRACKS).withProperties(
                 PropertyFactory.lineColor(Color.parseColor("#1E3A8A")),
                 PropertyFactory.lineWidth(3.5f),
-                PropertyFactory.lineOpacity(0.9f)
-            ).withFilter(
-                Expression.eq(Expression.get("kind"), Expression.literal("idle"))
+                PropertyFactory.lineOpacity(0.85f)
             )
         )
-        style.addLayer(
-            LineLayer(LAYER_TRAVEL, SOURCE_TRACKS).withProperties(
-                PropertyFactory.lineColor(Color.parseColor("#DC2626")),
-                PropertyFactory.lineWidth(4.5f),
-                PropertyFactory.lineOpacity(0.95f)
-            ).withFilter(
-                Expression.eq(Expression.get("kind"), Expression.literal("travel"))
-            )
-        )
-    } else {
-        updateHistoryLayers(style, history)
-        return
     }
 
-    if (style.getSource(SOURCE_JOURNALS) == null) {
-        style.addSource(GeoJsonSource(SOURCE_JOURNALS, journalCollection(history)))
+    if (style.getSource(SOURCE_PLOTS) == null) {
+        style.addSource(GeoJsonSource(SOURCE_PLOTS, plotCollection(history)))
         style.addLayer(
-            CircleLayer(LAYER_JOURNALS, SOURCE_JOURNALS).withProperties(
-                PropertyFactory.circleRadius(6f),
-                PropertyFactory.circleColor(Color.parseColor("#DC2626")),
+            CircleLayer(LAYER_PLOTS, SOURCE_PLOTS).withProperties(
+                PropertyFactory.circleRadius(7f),
+                PropertyFactory.circleColor(Color.parseColor("#2563EB")),
                 PropertyFactory.circleStrokeWidth(2f),
                 PropertyFactory.circleStrokeColor(Color.WHITE)
+            ).withFilter(
+                Expression.eq(Expression.get("night_stayed"), Expression.literal(false))
             )
         )
-    }
-
-    if (style.getSource(SOURCE_NIGHTS) == null) {
-        style.addSource(GeoJsonSource(SOURCE_NIGHTS, nightCollection(history)))
         style.addLayer(
-            CircleLayer(LAYER_NIGHTS, SOURCE_NIGHTS).withProperties(
+            CircleLayer(LAYER_NIGHTS, SOURCE_PLOTS).withProperties(
                 PropertyFactory.circleRadius(12f),
                 PropertyFactory.circleColor(Color.parseColor("#661E3A8A")),
                 PropertyFactory.circleStrokeWidth(3f),
                 PropertyFactory.circleStrokeColor(Color.parseColor("#1E3A8A"))
+            ).withFilter(
+                Expression.eq(Expression.get("night_stayed"), Expression.literal(true))
             )
         )
+        style.addLayer(
+            CircleLayer(LAYER_JOURNALS, SOURCE_PLOTS).withProperties(
+                PropertyFactory.circleRadius(5f),
+                PropertyFactory.circleColor(Color.parseColor("#DC2626")),
+                PropertyFactory.circleStrokeWidth(2f),
+                PropertyFactory.circleStrokeColor(Color.WHITE)
+            ).withFilter(
+                Expression.gt(Expression.get("journal_count"), Expression.literal(0))
+            )
+        )
+    } else {
+        updateHistoryLayers(style, history)
     }
 }
 
 private fun updateHistoryLayers(style: Style, history: HistoryResponse) {
     (style.getSource(SOURCE_TRACKS) as? GeoJsonSource)?.setGeoJson(trackCollection(history))
-    (style.getSource(SOURCE_JOURNALS) as? GeoJsonSource)?.setGeoJson(journalCollection(history))
-    (style.getSource(SOURCE_NIGHTS) as? GeoJsonSource)?.setGeoJson(nightCollection(history))
+    (style.getSource(SOURCE_PLOTS) as? GeoJsonSource)?.setGeoJson(plotCollection(history))
 }
 
 private fun trackCollection(history: HistoryResponse): FeatureCollection {
@@ -345,32 +368,22 @@ private fun trackCollection(history: HistoryResponse): FeatureCollection {
     return FeatureCollection.fromFeatures(features)
 }
 
-private fun journalCollection(history: HistoryResponse): FeatureCollection {
-    val features = history.journal_pins.map { pin ->
-        Feature.fromGeometry(Point.fromLngLat(pin.longitude, pin.latitude)).also {
-            it.addNumberProperty("entry_id", pin.entry_id)
-        }
-    }
-    return FeatureCollection.fromFeatures(features)
-}
-
-private fun nightCollection(history: HistoryResponse): FeatureCollection {
-    val features = history.night_stays.map { night ->
-        Feature.fromGeometry(Point.fromLngLat(night.longitude, night.latitude)).also {
-            it.addNumberProperty("night_stay_id", night.night_stay_id)
+private fun plotCollection(history: HistoryResponse): FeatureCollection {
+    val features = history.plot_points.map { plot ->
+        Feature.fromGeometry(Point.fromLngLat(plot.longitude, plot.latitude)).also {
+            it.addNumberProperty("plot_id", plot.plot_id)
+            it.addBooleanProperty("night_stayed", plot.night_stayed)
+            it.addNumberProperty("journal_count", plot.journal_count)
+            plot.journals.firstOrNull()?.let { j ->
+                it.addNumberProperty("entry_id", j.entry_id)
+            }
         }
     }
     return FeatureCollection.fromFeatures(features)
 }
 
 private fun fitToHistory(map: org.maplibre.android.maps.MapLibreMap, history: HistoryResponse) {
-    val points = buildList {
-        history.segments.forEach { seg ->
-            seg.points.forEach { add(LatLng(it.latitude, it.longitude)) }
-        }
-        history.journal_pins.forEach { add(LatLng(it.latitude, it.longitude)) }
-        history.night_stays.forEach { add(LatLng(it.latitude, it.longitude)) }
-    }
+    val points = history.plot_points.map { LatLng(it.latitude, it.longitude) }
     if (points.isEmpty()) {
         map.animateCamera(CameraUpdateFactory.newLatLngZoom(LatLng(22.82, 86.22), 11.0))
         return
@@ -386,27 +399,28 @@ private fun fitToHistory(map: org.maplibre.android.maps.MapLibreMap, history: Hi
 private fun handleMapClick(
     map: org.maplibre.android.maps.MapLibreMap,
     point: LatLng,
-    onJournalClick: (Long) -> Unit,
-    onNightClick: (Long) -> Unit
+    onPlotClick: (Long) -> Unit,
+    onJournalClick: (Long) -> Unit
 ): Boolean {
     val screen = map.projection.toScreenLocation(point)
     val journalHits = map.queryRenderedFeatures(screen, LAYER_JOURNALS)
-    journalHits.firstOrNull()?.getNumberProperty("entry_id")?.toLong()?.let {
-        onJournalClick(it)
+    val journalFeature = journalHits.firstOrNull()
+    if (journalFeature != null) {
+        journalFeature.getNumberProperty("entry_id")?.toLong()?.let(onJournalClick)
+        journalFeature.getNumberProperty("plot_id")?.toLong()?.let(onPlotClick)
         return true
     }
-    val nightHits = map.queryRenderedFeatures(screen, LAYER_NIGHTS)
-    nightHits.firstOrNull()?.getNumberProperty("night_stay_id")?.toLong()?.let {
-        onNightClick(it)
+    val plotHits = map.queryRenderedFeatures(screen, LAYER_NIGHTS, LAYER_PLOTS)
+    plotHits.firstOrNull()?.getNumberProperty("plot_id")?.toLong()?.let {
+        onPlotClick(it)
         return true
     }
     return false
 }
 
 private const val SOURCE_TRACKS = "nomad-tracks"
-private const val SOURCE_JOURNALS = "nomad-journals"
-private const val SOURCE_NIGHTS = "nomad-nights"
-private const val LAYER_IDLE = "nomad-tracks-idle"
-private const val LAYER_TRAVEL = "nomad-tracks-travel"
+private const val SOURCE_PLOTS = "nomad-plots"
+private const val LAYER_PATH = "nomad-path"
+private const val LAYER_PLOTS = "nomad-plots-layer"
 private const val LAYER_JOURNALS = "nomad-journals-layer"
 private const val LAYER_NIGHTS = "nomad-nights-layer"
