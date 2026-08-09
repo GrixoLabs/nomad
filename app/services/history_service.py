@@ -49,15 +49,20 @@ class HistoryService:
                 f"https://tiles.stadiamaps.com/tiles/{style}/{{z}}/{{x}}/{{y}}.png"
                 f"?api_key={key}"
             )
+            style_url = (
+                f"https://tiles.stadiamaps.com/styles/{style}.json?api_key={key}"
+            )
             return MapConfigResponse(
                 tile_url_template=template,
                 style=style,
+                style_url=style_url,
                 attribution="© Stadia Maps © OpenMapTiles © OpenStreetMap",
             )
         # Fallback so history map still loads when STADIA_API is unset.
         return MapConfigResponse(
             tile_url_template="https://tile.openstreetmap.org/{z}/{x}/{y}.png",
             style="osm",
+            style_url=None,
             attribution="© OpenStreetMap contributors",
         )
 

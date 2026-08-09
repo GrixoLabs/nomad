@@ -59,3 +59,5 @@ class MapConfigResponse(BaseModel):
     tile_url_template: str
     attribution: str = "© Stadia Maps © OpenMapTiles © OpenStreetMap"
     style: str = "alidade_smooth"
+    # MapLibre style JSON URL when STADIA_API is configured (preferred by Android).
+    style_url: str | None = None
