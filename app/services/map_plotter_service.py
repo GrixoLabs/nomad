@@ -80,7 +80,11 @@ class MapPlotterService:
         q = select(DeviceSignal).where(DeviceSignal.device_id == device_id)
         if not force_full and watermark.last_signal_id is not None:
             q = q.where(DeviceSignal.signal_id > watermark.last_signal_id)
-        signals = list(q.order_by(DeviceSignal.gps_timestamp_utc.asc(), DeviceSignal.signal_id.asc()).all())
+        q = q.order_by(
+            DeviceSignal.gps_timestamp_utc.asc(),
+            DeviceSignal.signal_id.asc(),
+        )
+        signals = list(db.scalars(q).all())
 
         if not signals and not force_full:
             self._refresh_journal_counts(db, device_id)
@@ -204,7 +208,8 @@ class MapPlotterService:
         q = select(MapPlotter).where(MapPlotter.device_id == device_id)
         if since is not None:
             q = q.where(MapPlotter.last_gps_timestamp >= since)
-        return list(q.order_by(MapPlotter.last_gps_timestamp.asc()).all())
+        q = q.order_by(MapPlotter.last_gps_timestamp.asc())
+        return list(db.scalars(q).all())
 
     def _resolve_user_id(self, db: Session, device_uuid: UUID) -> UUID | None:
         user = db.scalar(select(User).where(User.device_uuid == device_uuid))
