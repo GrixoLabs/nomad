@@ -383,35 +383,31 @@ class PlaceService:
             if current is None:
                 best[key] = place
                 continue
-            # Keep the higher-popularity (then closer) name variant.
-            if (place.popularity_score, -(place.distance_m or 1e12)) > (
+
+            # Prefer higher popularity, then closer, then shorter display name.
+            place_key = (
+                place.popularity_score,
+                -(place.distance_m if place.distance_m is not None else 1e12),
+                -len(place.name),
+            )
+            current_key = (
                 current.popularity_score,
-                -(current.distance_m or 1e12),
-            ):
-                # Prefer shorter/cleaner display name when scores tie-ish.
-                chosen = place
-            else:
-                chosen = current
-            # Prefer the shorter label among near-equal popularity.
-            other = current if chosen is place else place
-            if abs(chosen.popularity_score - other.popularity_score) <= 5 and len(
-                other.name
-            ) < len(chosen.name):
-                chosen = NearbyPlace(
-                    name=other.name,
-                    category=chosen.category or other.category,
-                    latitude=chosen.latitude,
-                    longitude=chosen.longitude,
-                    distance_m=min(
-                        x
-                        for x in (chosen.distance_m, other.distance_m)
-                        if x is not None
-                    )
-                    if chosen.distance_m is not None or other.distance_m is not None
-                    else None,
-                    popularity_score=max(chosen.popularity_score, other.popularity_score),
-                )
-            best[key] = chosen
+                -(current.distance_m if current.distance_m is not None else 1e12),
+                -len(current.name),
+            )
+            winner = place if place_key > current_key else current
+            loser = current if winner is place else place
+            dist_candidates = [
+                d for d in (winner.distance_m, loser.distance_m) if d is not None
+            ]
+            best[key] = NearbyPlace(
+                name=winner.name if len(winner.name) <= len(loser.name) else loser.name,
+                category=winner.category or loser.category,
+                latitude=winner.latitude,
+                longitude=winner.longitude,
+                distance_m=min(dist_candidates) if dist_candidates else None,
+                popularity_score=max(winner.popularity_score, loser.popularity_score),
+            )
         return list(best.values())
 
     @staticmethod
