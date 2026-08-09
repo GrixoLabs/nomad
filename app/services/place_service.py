@@ -1,14 +1,16 @@
-"""Place resolve (Nominatim), weather (Open-Meteo), nearby spots (Overpass)."""
+"""Place resolve (Nominatim), weather (Open-Meteo), nearby POIs (Google Places)."""
 
 from __future__ import annotations
 
 import logging
+import math
 import re
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import httpx
-from sqlalchemy import select
+from fastapi import HTTPException
+from sqlalchemy import delete, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
@@ -27,6 +29,23 @@ logger = logging.getLogger(__name__)
 WEATHER_CACHE_MAX_AGE = timedelta(hours=4)
 
 NEARBY_RADIUS_M = 25_000
+GOOGLE_PLACES_NEARBY_URL = "https://places.googleapis.com/v1/places:searchNearby"
+GOOGLE_POI_TYPES = (
+    "tourist_attraction",
+    "museum",
+    "park",
+    "zoo",
+    "amusement_park",
+    "aquarium",
+    "art_gallery",
+    "hindu_temple",
+    "church",
+    "mosque",
+    "synagogue",
+    "place_of_worship",
+    "historical_landmark",
+    "national_park",
+)
 _NAME_STOPWORDS = (
     "zoological",
     "park",
@@ -208,17 +227,35 @@ class PlaceService:
         limit: int = 10,
         sort: str = "popularity",
     ) -> NearbyPlacesResponse:
-        """Top popular spots within 25 km. Distance is visual only; default sort is popularity."""
+        """Top popular spots within 25 km via Google Places. Distance is visual only."""
         key = grid_key(lat, lon)
         limit = max(1, min(limit, 10))
         sort = sort if sort in {"popularity", "distance"} else "popularity"
+
         cached_rows = list(
-            db.scalars(select(TouristSpot).where(TouristSpot.grid_key == key)).all()
+            db.scalars(
+                select(TouristSpot).where(
+                    TouristSpot.grid_key == key,
+                    TouristSpot.source == "google_places",
+                )
+            ).all()
         )
         from_cache = bool(cached_rows)
 
         if not cached_rows:
-            fetched = self._fetch_overpass(lat, lon)
+            if not self.settings.google_api_key:
+                raise HTTPException(
+                    status_code=503,
+                    detail="GOOGLE_MAP_API is not configured on the server",
+                )
+            fetched = self._fetch_google_places(lat, lon)
+            # Drop legacy Overpass rows for this grid so UI only sees Google POIs.
+            db.execute(
+                delete(TouristSpot).where(
+                    TouristSpot.grid_key == key,
+                    TouristSpot.source == "overpass",
+                )
+            )
             now = datetime.now(timezone.utc)
             for item in fetched:
                 stmt = (
@@ -240,7 +277,12 @@ class PlaceService:
                 db.execute(stmt)
             db.commit()
             cached_rows = list(
-                db.scalars(select(TouristSpot).where(TouristSpot.grid_key == key)).all()
+                db.scalars(
+                    select(TouristSpot).where(
+                        TouristSpot.grid_key == key,
+                        TouristSpot.source == "google_places",
+                    )
+                ).all()
             )
 
         scored: list[NearbyPlace] = []
@@ -311,64 +353,93 @@ class PlaceService:
                 raise ValueError("Unexpected Open-Meteo response")
             return data
 
-    def _fetch_overpass(self, lat: float, lon: float) -> list[dict[str, Any]]:
-        # Tourism / amenity attractions within 25 km.
-        radius_m = NEARBY_RADIUS_M
-        query = f"""
-        [out:json][timeout:25];
-        (
-          node["tourism"~"attraction|museum|viewpoint|gallery|zoo|theme_park|artwork"](around:{radius_m},{lat},{lon});
-          way["tourism"~"attraction|museum|viewpoint|gallery|zoo|theme_park"](around:{radius_m},{lat},{lon});
-          node["historic"](around:{radius_m},{lat},{lon});
-          node["amenity"~"place_of_worship|theatre|cinema"](around:{radius_m},{lat},{lon});
-        );
-        out center 60;
-        """
+    def _fetch_google_places(self, lat: float, lon: float) -> list[dict[str, Any]]:
+        """Famous / popular POIs within 25 km via Google Places Nearby Search (New)."""
+        api_key = self.settings.google_api_key
+        body = {
+            "includedTypes": list(GOOGLE_POI_TYPES),
+            "maxResultCount": 20,
+            "rankPreference": "POPULARITY",
+            "locationRestriction": {
+                "circle": {
+                    "center": {"latitude": lat, "longitude": lon},
+                    "radius": float(NEARBY_RADIUS_M),
+                }
+            },
+        }
+        headers = {
+            "Content-Type": "application/json",
+            "X-Goog-Api-Key": api_key,
+            "X-Goog-FieldMask": (
+                "places.id,places.displayName,places.location,"
+                "places.types,places.rating,places.userRatingCount"
+            ),
+        }
         with self._client() as client:
-            resp = client.post(
-                self.settings.overpass_url,
-                data={"data": query},
-                headers={"User-Agent": self.settings.nominatim_user_agent},
-            )
-            resp.raise_for_status()
+            resp = client.post(GOOGLE_PLACES_NEARBY_URL, json=body, headers=headers)
+            if resp.status_code >= 400:
+                logger.warning(
+                    "Google Places error status=%s body=%s",
+                    resp.status_code,
+                    resp.text[:400],
+                )
+                resp.raise_for_status()
             payload = resp.json()
 
         results: list[dict[str, Any]] = []
-        for el in payload.get("elements") or []:
-            tags = el.get("tags") or {}
-            name = tags.get("name")
+        for place in payload.get("places") or []:
+            display = place.get("displayName") or {}
+            name = display.get("text") if isinstance(display, dict) else None
             if not name:
                 continue
-            if "lat" in el and "lon" in el:
-                elat, elon = float(el["lat"]), float(el["lon"])
-            else:
-                center = el.get("center") or {}
-                if "lat" not in center or "lon" not in center:
-                    continue
-                elat, elon = float(center["lat"]), float(center["lon"])
+            location = place.get("location") or {}
+            if "latitude" not in location or "longitude" not in location:
+                continue
+            elat = float(location["latitude"])
+            elon = float(location["longitude"])
             if haversine_m(lat, lon, elat, elon) > NEARBY_RADIUS_M:
                 continue
-            category = (
-                tags.get("tourism")
-                or tags.get("historic")
-                or tags.get("amenity")
-                or "place"
+            types = [str(t) for t in (place.get("types") or []) if t]
+            category = next(
+                (t for t in types if t in GOOGLE_POI_TYPES),
+                types[0] if types else "tourist_attraction",
             )
-            source_id = f"{el.get('type', 'n')}/{el.get('id')}"
+            place_id = str(place.get("id") or f"{elat:.5f},{elon:.5f}")
+            rating = place.get("rating")
+            rating_count = place.get("userRatingCount") or 0
             results.append(
                 {
                     "name": name,
                     "category": str(category)[:80],
                     "latitude": elat,
                     "longitude": elon,
-                    "source": "overpass",
-                    "source_id": source_id[:80],
-                    "popularity_score": self._popularity_score(tags, category),
-                    "raw": {"id": el.get("id"), "type": el.get("type"), "tags": tags},
+                    "source": "google_places",
+                    "source_id": place_id[:80],
+                    "popularity_score": self._google_popularity_score(rating, rating_count),
+                    "raw": {
+                        "id": place_id,
+                        "types": types,
+                        "rating": rating,
+                        "userRatingCount": rating_count,
+                    },
                 }
             )
         results.sort(key=lambda x: -x["popularity_score"])
         return results
+
+    @staticmethod
+    def _google_popularity_score(rating: Any, rating_count: Any) -> int:
+        try:
+            r = float(rating) if rating is not None else 0.0
+        except (TypeError, ValueError):
+            r = 0.0
+        try:
+            count = int(rating_count or 0)
+        except (TypeError, ValueError):
+            count = 0
+        # Rating-weighted log popularity so well-known places rank first.
+        score = int(round(r * 20.0 + math.log1p(max(0, count)) * 12.0))
+        return max(1, score)
 
     @staticmethod
     def _normalize_place_name(name: str) -> str:

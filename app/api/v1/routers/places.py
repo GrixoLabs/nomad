@@ -2,11 +2,19 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from app.database.dependencies import get_db
-from app.schemas.place import NearbyPlacesResponse, PlaceResolveResponse, WeatherResponse
+from app.schemas.place import (
+    NearbyPlacesResponse,
+    PlaceResolveResponse,
+    RouteRequest,
+    RouteResponse,
+    WeatherResponse,
+)
 from app.services.place_service import PlaceService
+from app.services.route_service import RouteService
 
 router = APIRouter(tags=["Places"])
 service = PlaceService()
+routes = RouteService()
 
 
 @router.get("/places/resolve", response_model=PlaceResolveResponse)
@@ -43,5 +51,13 @@ def nearby_places(
 ):
     try:
         return service.nearby_places(db, lat, lon, limit=limit, sort=sort)
+    except HTTPException:
+        raise
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=504, detail=f"Nearby places failed: {exc}") from exc
+
+
+@router.post("/routes/compute", response_model=RouteResponse)
+def compute_route(request: RouteRequest):
+    """Google Routes geometry for MapLibre (Stadia tiles) rendering."""
+    return routes.compute_route(request)

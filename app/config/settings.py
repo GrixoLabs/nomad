@@ -45,6 +45,10 @@ class Settings(BaseSettings):
     nominatim_user_agent: str = "NomadApp/1.0 (contact: ops@grixo.dev)"
     open_meteo_url: str = "https://api.open-meteo.com/v1/forecast"
     overpass_url: str = "https://overpass-api.de/api/interpreter"
+    # Google Places (nearby POIs) + Google Routes (navigation geometry).
+    # Prefer GOOGLE_MAP_API from .env; GOOGLE_MAPS_API_KEY also accepted.
+    google_map_api: str | None = None
+    google_maps_api_key: str | None = None
     # Android client waits ~25s; keep server outbound slightly under that.
     external_http_timeout_seconds: float = 22.0
 
@@ -75,6 +79,11 @@ class Settings(BaseSettings):
         if self.cors_origins.strip() == "*":
             return ["*"]
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
+
+    @property
+    def google_api_key(self) -> str:
+        """Resolved Google Maps Platform key (Places + Routes)."""
+        return (self.google_map_api or self.google_maps_api_key or "").strip()
 
 
 @lru_cache

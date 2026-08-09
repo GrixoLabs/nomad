@@ -36,3 +36,24 @@ class NearbyPlacesResponse(BaseModel):
     places: list[NearbyPlace] = Field(default_factory=list)
     cached: bool = False
     sort: str = "popularity"
+
+
+class RoutePoint(BaseModel):
+    latitude: float
+    longitude: float
+
+
+class RouteRequest(BaseModel):
+    origin_lat: float = Field(..., ge=-90, le=90)
+    origin_lon: float = Field(..., ge=-180, le=180)
+    dest_lat: float = Field(..., ge=-90, le=90)
+    dest_lon: float = Field(..., ge=-180, le=180)
+    travel_mode: str = Field(default="DRIVE", max_length=20)
+
+
+class RouteResponse(BaseModel):
+    points: list[RoutePoint] = Field(default_factory=list)
+    distance_m: int | None = None
+    duration_seconds: int | None = None
+    encoded_polyline: str | None = None
+    travel_mode: str = "DRIVE"
