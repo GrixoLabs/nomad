@@ -23,7 +23,7 @@ from app.schemas.history import (
     TrackSegment,
 )
 from app.security.journal_crypto import decrypt_journal, encrypt_journal
-from app.services.map_plotter_service import MapPlotterService, round_cell
+from app.services.map_plotter_service import MIN_PLOT_SECONDS, MapPlotterService, round_cell
 
 
 class HistoryService:
@@ -141,9 +141,12 @@ class HistoryService:
             key = (round_cell(row.latitude), round_cell(row.longitude))
             journals_by_cell.setdefault(key, []).append(item)
 
+        # Plot points = cells with meaningful dwell (> 30 minutes).
         plot_points: list[PlotPointResponse] = []
         night_stays: list[NightStayResponse] = []
         for plot in plots:
+            if plot.total_time_at_location_seconds < MIN_PLOT_SECONDS:
+                continue
             key = (plot.latitude, plot.longitude)
             cell_journals = journals_by_cell.get(key, [])
             plot_points.append(

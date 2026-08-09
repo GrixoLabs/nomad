@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""Flush nomad.weather_cache (intended for daily midnight cron/systemd timer).
+"""Flush nomad.weather_cache (intended for every-4-hours systemd timer).
 
 Examples:
   python scripts/flush_weather_cache.py
-  # crontab (UTC midnight):
-  # 0 0 * * * cd /path/to/nomad && .venv/bin/python scripts/flush_weather_cache.py
+  # systemd: nomad-flush-weather.timer (OnCalendar every 4 hours UTC)
+  # crontab alternative:
+  # 0 */4 * * * cd /path/to/nomad && .venv/bin/python scripts/flush_weather_cache.py
 """
 
 from __future__ import annotations

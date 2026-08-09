@@ -31,6 +31,7 @@ MAX_GAP_SECONDS = 2 * 60 * 60  # ignore gaps > 2h when accumulating dwell time
 NIGHT_START = time(22, 0)
 NIGHT_END = time(6, 0)
 MIN_NIGHT_SECONDS = 6 * 60 * 60
+MIN_PLOT_SECONDS = 30 * 60  # dwell threshold for history plot points
 
 
 def round_cell(value: float) -> float:

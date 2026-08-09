@@ -1,8 +1,8 @@
 [Unit]
-Description=Daily midnight UTC flush of Nomad weather_cache
+Description=Flush Nomad weather_cache every 4 hours (UTC)
 
 [Timer]
-OnCalendar=*-*-* 00:00:00 UTC
+OnCalendar=*-*-* 00/4:00:00 UTC
 Persistent=true
 Unit=nomad-flush-weather.service
 

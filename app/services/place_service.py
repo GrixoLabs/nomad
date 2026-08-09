@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import httpx
@@ -23,6 +23,8 @@ from app.schemas.place import (
 from app.utils.geo import grid_center, grid_key, haversine_m
 
 logger = logging.getLogger(__name__)
+
+WEATHER_CACHE_MAX_AGE = timedelta(hours=4)
 
 NEARBY_RADIUS_M = 25_000
 _NAME_STOPWORDS = (
@@ -148,16 +150,20 @@ class PlaceService:
     def get_weather(self, db: Session, lat: float, lon: float) -> WeatherResponse:
         key = grid_key(lat, lon)
         existing = db.get(WeatherCache, key)
-        if existing:
-            return WeatherResponse(
-                summary=existing.summary,
-                temperature_c=existing.temperature_c,
-                feels_like_c=existing.feels_like_c,
-                humidity_percent=existing.humidity_percent,
-                wind_speed_kmh=existing.wind_speed_kmh,
-                weather_code=existing.weather_code,
-                cached=True,
-            )
+        if existing is not None:
+            fetched = existing.fetched_at
+            if fetched.tzinfo is None:
+                fetched = fetched.replace(tzinfo=timezone.utc)
+            if datetime.now(timezone.utc) - fetched < WEATHER_CACHE_MAX_AGE:
+                return WeatherResponse(
+                    summary=existing.summary,
+                    temperature_c=existing.temperature_c,
+                    feels_like_c=existing.feels_like_c,
+                    humidity_percent=existing.humidity_percent,
+                    wind_speed_kmh=existing.wind_speed_kmh,
+                    weather_code=existing.weather_code,
+                    cached=True,
+                )
 
         lat_c, lon_c = grid_center(key)
         payload = self._fetch_open_meteo(lat, lon)

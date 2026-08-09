@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 """Rebuild / incrementally sync nomad.map_plotter from device_signals.
 
+Intended to run every 30 minutes via nomad-sync-map-plotter.timer, and also
+on demand after signal ingest / history reads.
+
   python scripts/compute_map_plotter.py
   python scripts/compute_map_plotter.py --device-uuid UUID --full
 """

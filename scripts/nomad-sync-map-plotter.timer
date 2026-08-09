@@ -1,0 +1,12 @@
+[Unit]
+Description=Refresh Nomad map_plotter every 30 minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=30min
+AccuracySec=1min
+Persistent=true
+Unit=nomad-sync-map-plotter.service
+
+[Install]
+WantedBy=timers.target

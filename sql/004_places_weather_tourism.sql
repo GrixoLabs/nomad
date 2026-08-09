@@ -22,7 +22,7 @@ CREATE TABLE IF NOT EXISTS nomad.place_cache
 CREATE INDEX IF NOT EXISTS idx_place_cache_updated
     ON nomad.place_cache(updated_at);
 
--- (b) Weather cache (~20 km grid). Flushed daily at midnight (UTC) by job.
+-- (b) Weather cache (~20 km grid). Truncated every 4 hours (UTC) by systemd timer.
 CREATE TABLE IF NOT EXISTS nomad.weather_cache
 (
     grid_key           VARCHAR(32) PRIMARY KEY,
