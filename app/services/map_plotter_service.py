@@ -11,7 +11,7 @@ Pipeline:
 from __future__ import annotations
 
 import logging
-from datetime import datetime, time, timedelta, timezone
+from datetime import datetime, time, timezone
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
@@ -36,6 +36,11 @@ MIN_PLOT_SECONDS = 30 * 60  # dwell threshold for history plot points
 
 def round_cell(value: float) -> float:
     return round(float(value), COORD_DECIMALS)
+
+
+def cell_key(lat: float, lon: float) -> tuple[str, str]:
+    """Stable dict key for 3-decimal cells (avoids float identity mismatches)."""
+    return (f"{round_cell(lat):.{COORD_DECIMALS}f}", f"{round_cell(lon):.{COORD_DECIMALS}f}")
 
 
 def is_night_local(ts: datetime, tz: ZoneInfo) -> bool:
@@ -113,15 +118,13 @@ class MapPlotterService:
             db.flush()
             prev_sig = None
 
-        cells: dict[tuple[float, float], MapPlotter] = {}
-        for row in db.scalars(select(MapPlotter).where(MapPlotter.device_id == device_id)).all():
-            cells[(row.latitude, row.longitude)] = row
+        cells = self._load_cells(db, device_id)
 
         last_signal_id = watermark.last_signal_id
         for sig in signals:
             lat = round_cell(sig.latitude)
             lon = round_cell(sig.longitude)
-            key = (lat, lon)
+            key = cell_key(lat, lon)
             ts = sig.gps_timestamp_utc
             if ts.tzinfo is None:
                 ts = ts.replace(tzinfo=timezone.utc)
@@ -145,6 +148,9 @@ class MapPlotterService:
                 db.add(row)
                 cells[key] = row
             else:
+                # Normalize stored coords to the canonical 3-decimal values.
+                row.latitude = lat
+                row.longitude = lon
                 row.signal_count += 1
                 if ts < row.first_gps_timestamp:
                     row.first_gps_timestamp = ts
@@ -162,7 +168,7 @@ class MapPlotterService:
                     prev_ts = prev_ts.replace(tzinfo=timezone.utc)
                 gap = (ts - prev_ts).total_seconds()
                 if 0 < gap <= MAX_GAP_SECONDS:
-                    if prev_lat == lat and prev_lon == lon:
+                    if cell_key(prev_lat, prev_lon) == key:
                         row.total_time_at_location_seconds += gap
                         if is_night_local(prev_ts, tz) and is_night_local(ts, tz):
                             row.night_time_seconds += gap
@@ -178,6 +184,8 @@ class MapPlotterService:
             watermark.last_signal_id = last_signal_id
         watermark.last_synced_at = datetime.now(timezone.utc)
 
+        # Persist signal cells before journal recount so unique lookups see them.
+        db.flush()
         self._refresh_journal_counts(db, device_id)
         self._recompute_night_flags(db, device_id)
         db.commit()
@@ -215,52 +223,64 @@ class MapPlotterService:
         user = db.scalar(select(User).where(User.device_uuid == device_uuid))
         return user.user_id if user else None
 
+    def _load_cells(self, db: Session, device_id: int) -> dict[tuple[str, str], MapPlotter]:
+        cells: dict[tuple[str, str], MapPlotter] = {}
+        for row in db.scalars(select(MapPlotter).where(MapPlotter.device_id == device_id)).all():
+            key = cell_key(row.latitude, row.longitude)
+            # If duplicates already exist from older buggy runs, keep the oldest plot_id.
+            existing = cells.get(key)
+            if existing is None or row.plot_id < existing.plot_id:
+                cells[key] = row
+        return cells
+
     def _refresh_journal_counts(self, db: Session, device_id: int) -> None:
         journals = list(
             db.scalars(select(JournalEntry).where(JournalEntry.device_id == device_id)).all()
         )
-        counts: dict[tuple[float, float], int] = {}
+        counts: dict[tuple[str, str], int] = {}
+        journals_by_cell: dict[tuple[str, str], list[JournalEntry]] = {}
         for entry in journals:
-            key = (round_cell(entry.latitude), round_cell(entry.longitude))
+            key = cell_key(entry.latitude, entry.longitude)
             counts[key] = counts.get(key, 0) + 1
+            journals_by_cell.setdefault(key, []).append(entry)
 
-        rows = list(db.scalars(select(MapPlotter).where(MapPlotter.device_id == device_id)).all())
-        for row in rows:
-            row.journal_count = counts.get((row.latitude, row.longitude), 0)
+        cells = self._load_cells(db, device_id)
+
+        # Reset then apply counts for known cells.
+        for key, row in cells.items():
+            row.latitude = round_cell(row.latitude)
+            row.longitude = round_cell(row.longitude)
+            row.journal_count = counts.get(key, 0)
             row.updated_at = datetime.now(timezone.utc)
 
         # Journals at cells with no signals yet → create a plot row.
-        existing = {(r.latitude, r.longitude) for r in rows}
-        for (lat, lon), count in counts.items():
-            if (lat, lon) in existing:
+        for key, count in counts.items():
+            if key in cells:
                 continue
-            # Use earliest journal time as gps timestamps.
-            matching = [
-                j
-                for j in journals
-                if round_cell(j.latitude) == lat and round_cell(j.longitude) == lon
-            ]
+            matching = journals_by_cell.get(key) or []
             if not matching:
                 continue
             matching.sort(key=lambda j: j.created_at)
+            lat = round_cell(matching[0].latitude)
+            lon = round_cell(matching[0].longitude)
             first = matching[0].created_at
             last = matching[-1].created_at
-            db.add(
-                MapPlotter(
-                    device_id=device_id,
-                    latitude=lat,
-                    longitude=lon,
-                    first_gps_timestamp=first,
-                    last_gps_timestamp=last,
-                    total_time_at_location_seconds=0.0,
-                    night_time_seconds=0.0,
-                    visit_count=1,
-                    signal_count=0,
-                    journal_count=count,
-                    night_stayed=False,
-                    place_label=matching[-1].place_label,
-                )
+            row = MapPlotter(
+                device_id=device_id,
+                latitude=lat,
+                longitude=lon,
+                first_gps_timestamp=first,
+                last_gps_timestamp=last,
+                total_time_at_location_seconds=0.0,
+                night_time_seconds=0.0,
+                visit_count=1,
+                signal_count=0,
+                journal_count=count,
+                night_stayed=False,
+                place_label=matching[-1].place_label,
             )
+            db.add(row)
+            cells[key] = row
 
     def _recompute_night_flags(self, db: Session, device_id: int) -> None:
         rows = list(db.scalars(select(MapPlotter).where(MapPlotter.device_id == device_id)).all())
