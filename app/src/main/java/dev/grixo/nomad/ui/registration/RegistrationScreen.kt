@@ -70,7 +70,6 @@ fun RegistrationRoute(
         state = state,
         onNameChange = viewModel::onNameChange,
         onEmailChange = viewModel::onEmailChange,
-        onPhoneChange = viewModel::onPhoneChange,
         onContactChange = viewModel::onContactChange,
         onAgeChange = viewModel::onAgeChange,
         onGenderChange = viewModel::onGenderChange,
@@ -97,7 +96,6 @@ fun RegistrationScreen(
     state: RegistrationUiState,
     onNameChange: (String) -> Unit,
     onEmailChange: (String) -> Unit,
-    onPhoneChange: (String) -> Unit,
     onContactChange: (String) -> Unit,
     onAgeChange: (String) -> Unit,
     onGenderChange: (Gender) -> Unit,
@@ -215,16 +213,6 @@ fun RegistrationScreen(
                         shape = RoundedCornerShape(14.dp),
                         colors = fieldColors,
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email)
-                    )
-                    OutlinedTextField(
-                        value = state.phone,
-                        onValueChange = onPhoneChange,
-                        modifier = Modifier.fillMaxWidth(),
-                        label = { Text(stringResource(R.string.phone_label)) },
-                        singleLine = true,
-                        shape = RoundedCornerShape(14.dp),
-                        colors = fieldColors,
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone)
                     )
                     OutlinedTextField(
                         value = state.age,

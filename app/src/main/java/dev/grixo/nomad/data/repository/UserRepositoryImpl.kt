@@ -7,15 +7,12 @@ import dev.grixo.nomad.data.network.model.ForgotPasswordRequest
 import dev.grixo.nomad.data.network.model.LoginRequest
 import dev.grixo.nomad.data.network.model.ResetPasswordRequest
 import dev.grixo.nomad.data.network.model.SendEmailOtpRequest
-import dev.grixo.nomad.data.network.model.SendSmsOtpRequest
 import dev.grixo.nomad.data.network.model.VerifyEmailOtpRequest
-import dev.grixo.nomad.data.network.model.VerifySmsOtpRequest
 import dev.grixo.nomad.domain.model.Gender
 import dev.grixo.nomad.domain.model.OnboardingStatus
 import dev.grixo.nomad.domain.model.UserProfile
 import dev.grixo.nomad.domain.repository.UserRepository
 import dev.grixo.nomad.utils.AuthErrorMapper
-import dev.grixo.nomad.utils.PhoneNormalizer
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import javax.inject.Inject
@@ -41,11 +38,8 @@ class UserRepositoryImpl @Inject constructor(
     override fun observeJournalEnabled(): Flow<Boolean> = preferenceManager.journalEnabled
 
     override suspend fun startRegistration(profile: UserProfile, password: String): Result<Unit> {
-        val email = profile.email?.trim()?.lowercase()?.takeIf { it.isNotEmpty() }
-        val phone = PhoneNormalizer.normalize(profile.phone)
-        if (email == null && phone == null) {
-            return Result.failure(IllegalArgumentException("Email or phone is required"))
-        }
+        val email = profile.email?.trim()?.lowercase()?.takeIf { it.isNotEmpty() && it.contains('@') }
+            ?: return Result.failure(IllegalArgumentException("Email is required"))
         if (profile.name.isBlank()) {
             return Result.failure(IllegalArgumentException("Name is required"))
         }
@@ -58,14 +52,13 @@ class UserRepositoryImpl @Inject constructor(
 
         val deviceUuid = preferenceManager.deviceUuid.first()
         return try {
-            // Backend /auth/register creates the pending user and sends OTP in one shot.
-            // Do not call send-*-otp again here — that would send a second code and
-            // previously left a confusing "account created but OTP failed" state.
+            // Backend /auth/register creates the pending user and sends email OTP.
+            // Phone/SMS registration is temporarily disabled.
             val response = api.authRegister(
                 AuthRegisterRequest(
                     name = profile.name.trim(),
                     email = email,
-                    phone_number = phone,
+                    phone_number = null,
                     password = password,
                     confirm_password = password,
                     age = profile.age,
@@ -83,11 +76,10 @@ class UserRepositoryImpl @Inject constructor(
 
             pendingProfile = profile.copy(
                 email = email,
-                phone = phone,
+                phone = null,
                 name = profile.name.trim()
             )
-            // Prefer email OTP whenever email is present (even if phone is also set).
-            pendingChannel = if (email != null) "email" else "phone"
+            pendingChannel = "email"
             Result.success(Unit)
         } catch (e: Exception) {
             Result.failure(IllegalStateException(AuthErrorMapper.friendlyNetworkMessage(e), e))
@@ -97,20 +89,14 @@ class UserRepositoryImpl @Inject constructor(
     override suspend fun verifyRegistrationOtp(otp: String): Result<Unit> {
         val profile = pendingProfile
             ?: return Result.failure(IllegalStateException("No pending registration"))
+        val email = profile.email
+            ?: return Result.failure(IllegalStateException("No pending registration"))
         val code = otp.trim()
         if (code.length < 4) {
             return Result.failure(IllegalArgumentException("Enter the verification code"))
         }
         return try {
-            val response = when (pendingChannel) {
-                "email" -> api.verifyEmailOtp(
-                    VerifyEmailOtpRequest(email = profile.email!!, otp = code)
-                )
-                "phone" -> api.verifySmsOtp(
-                    VerifySmsOtpRequest(phone_number = profile.phone!!, otp = code)
-                )
-                else -> return Result.failure(IllegalStateException("No pending registration"))
-            }
+            val response = api.verifyEmailOtp(VerifyEmailOtpRequest(email = email, otp = code))
             if (!response.isSuccessful) {
                 return Result.failure(
                     IllegalStateException(
@@ -131,12 +117,10 @@ class UserRepositoryImpl @Inject constructor(
     override suspend fun resendRegistrationOtp(): Result<Unit> {
         val profile = pendingProfile
             ?: return Result.failure(IllegalStateException("No pending registration"))
+        val email = profile.email
+            ?: return Result.failure(IllegalStateException("No pending registration"))
         return try {
-            val response = when (pendingChannel) {
-                "email" -> api.sendEmailOtp(SendEmailOtpRequest(profile.email!!))
-                "phone" -> api.sendSmsOtp(SendSmsOtpRequest(profile.phone!!))
-                else -> return Result.failure(IllegalStateException("No pending registration"))
-            }
+            val response = api.sendEmailOtp(SendEmailOtpRequest(email))
             if (response.isSuccessful) Result.success(Unit)
             else Result.failure(
                 IllegalStateException(
@@ -149,10 +133,9 @@ class UserRepositoryImpl @Inject constructor(
     }
 
     override suspend fun login(email: String?, phone: String?, password: String): Result<Unit> {
-        val cleanEmail = email?.trim()?.lowercase()?.takeIf { it.isNotEmpty() }
-        val cleanPhone = PhoneNormalizer.normalize(phone)
-        if (cleanEmail == null && cleanPhone == null) {
-            return Result.failure(IllegalArgumentException("Email or phone is required"))
+        val cleanEmail = email?.trim()?.lowercase()?.takeIf { it.isNotEmpty() && it.contains('@') }
+        if (cleanEmail == null) {
+            return Result.failure(IllegalArgumentException("Email is required"))
         }
         if (password.length < 8) {
             return Result.failure(IllegalArgumentException("Password must be at least 8 characters"))
@@ -161,7 +144,7 @@ class UserRepositoryImpl @Inject constructor(
             val response = api.login(
                 LoginRequest(
                     email = cleanEmail,
-                    phone_number = cleanPhone,
+                    phone_number = null,
                     password = password
                 )
             )
@@ -176,7 +159,7 @@ class UserRepositoryImpl @Inject constructor(
             val profile = UserProfile(
                 name = body.name?.takeIf { it.isNotBlank() } ?: "Traveler",
                 email = body.email ?: cleanEmail,
-                phone = body.phone_number ?: cleanPhone,
+                phone = body.phone_number,
                 age = body.age?.takeIf { it in 13..120 } ?: 18,
                 gender = Gender.fromStorage(body.gender) ?: Gender.PREFER_NOT
             )
@@ -189,14 +172,13 @@ class UserRepositoryImpl @Inject constructor(
     }
 
     override suspend fun forgotPassword(email: String?, phone: String?): Result<Unit> {
-        val cleanEmail = email?.trim()?.lowercase()?.takeIf { it.isNotEmpty() }
-        val cleanPhone = PhoneNormalizer.normalize(phone)
-        if (cleanEmail == null && cleanPhone == null) {
-            return Result.failure(IllegalArgumentException("Email or phone is required"))
+        val cleanEmail = email?.trim()?.lowercase()?.takeIf { it.isNotEmpty() && it.contains('@') }
+        if (cleanEmail == null) {
+            return Result.failure(IllegalArgumentException("Email is required"))
         }
         return try {
             val response = api.forgotPassword(
-                ForgotPasswordRequest(email = cleanEmail, phone_number = cleanPhone)
+                ForgotPasswordRequest(email = cleanEmail, phone_number = null)
             )
             if (response.isSuccessful) Result.success(Unit)
             else Result.failure(
@@ -215,10 +197,9 @@ class UserRepositoryImpl @Inject constructor(
         otp: String,
         newPassword: String
     ): Result<Unit> {
-        val cleanEmail = email?.trim()?.lowercase()?.takeIf { it.isNotEmpty() }
-        val cleanPhone = PhoneNormalizer.normalize(phone)
-        if (cleanEmail == null && cleanPhone == null) {
-            return Result.failure(IllegalArgumentException("Email or phone is required"))
+        val cleanEmail = email?.trim()?.lowercase()?.takeIf { it.isNotEmpty() && it.contains('@') }
+        if (cleanEmail == null) {
+            return Result.failure(IllegalArgumentException("Email is required"))
         }
         if (otp.trim().length < 4) {
             return Result.failure(IllegalArgumentException("Enter the verification code"))
@@ -230,7 +211,7 @@ class UserRepositoryImpl @Inject constructor(
             val response = api.resetPassword(
                 ResetPasswordRequest(
                     email = cleanEmail,
-                    phone_number = cleanPhone,
+                    phone_number = null,
                     otp = otp.trim(),
                     new_password = newPassword,
                     confirm_password = newPassword
