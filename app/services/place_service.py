@@ -41,10 +41,6 @@ GOOGLE_POI_TYPES = (
     "hindu_temple",
     "church",
     "mosque",
-    "synagogue",
-    "place_of_worship",
-    "historical_landmark",
-    "national_park",
 )
 _NAME_STOPWORDS = (
     "zoological",
