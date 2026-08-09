@@ -184,10 +184,14 @@ class MainViewModel @Inject constructor(
                         )
                     }
                 } else {
+                    val detail = response.errorBody()?.string()?.take(180)?.trim()
                     _uiState.update {
                         it.copy(
                             nearbyLoading = false,
-                            errorMessage = "Could not load nearby places (${response.code()})"
+                            errorMessage = buildString {
+                                append("Could not load nearby places (${response.code()})")
+                                if (!detail.isNullOrBlank()) append(": ").append(detail)
+                            }
                         )
                     }
                 }
