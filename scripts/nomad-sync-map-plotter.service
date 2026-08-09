@@ -4,7 +4,9 @@ After=network.target postgresql.service
 
 [Service]
 Type=oneshot
-WorkingDirectory=/opt/nomad
-EnvironmentFile=-/opt/nomad/.env
-ExecStart=/opt/nomad/.venv/bin/python /opt/nomad/scripts/compute_map_plotter.py
+# Override NOMAD_HOME via: /etc/systemd/system/nomad-sync-map-plotter.service.d/override.conf
+Environment=NOMAD_HOME=/opt/nomad
+WorkingDirectory=${NOMAD_HOME}
+EnvironmentFile=-${NOMAD_HOME}/.env
+ExecStart=${NOMAD_HOME}/.venv/bin/python ${NOMAD_HOME}/scripts/compute_map_plotter.py
 Nice=10
