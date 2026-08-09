@@ -1,10 +1,6 @@
 package dev.grixo.nomad.ui.history
 
-import android.annotation.SuppressLint
-import android.webkit.WebChromeClient
-import android.webkit.WebSettings
-import android.webkit.WebView
-import android.webkit.WebViewClient
+import android.graphics.Color
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -26,14 +22,36 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import org.json.JSONObject
+import dev.grixo.nomad.data.network.model.HistoryResponse
+import org.maplibre.android.camera.CameraUpdateFactory
+import org.maplibre.android.geometry.LatLng
+import org.maplibre.android.geometry.LatLngBounds
+import org.maplibre.android.maps.MapView
+import org.maplibre.android.maps.Style
+import org.maplibre.android.style.expressions.Expression
+import org.maplibre.android.style.layers.CircleLayer
+import org.maplibre.android.style.layers.LineLayer
+import org.maplibre.android.style.layers.PropertyFactory
+import org.maplibre.android.style.sources.GeoJsonSource
+import org.maplibre.geojson.Feature
+import org.maplibre.geojson.FeatureCollection
+import org.maplibre.geojson.LineString
+import org.maplibre.geojson.Point
 
 @Composable
 fun HistoryMapRoute(
@@ -110,20 +128,22 @@ fun HistoryMapScreen(
         ) {
             Box(modifier = Modifier.fillMaxSize()) {
                 when {
-                    state.loading && state.tileUrlTemplate == null -> {
+                    state.loading && state.history == null -> {
                         CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
                     }
-                    state.errorMessage != null && state.tileUrlTemplate == null -> {
+                    state.errorMessage != null && state.history == null -> {
                         Text(
                             state.errorMessage,
                             color = colors.error,
                             modifier = Modifier.align(Alignment.Center).padding(16.dp)
                         )
                     }
-                    state.tileUrlTemplate != null && state.historyJson != null -> {
-                        HistoryMapWebView(
-                            tileUrl = state.tileUrlTemplate,
-                            historyJson = state.historyJson,
+                    state.styleUrl != null || state.tileUrlTemplate != null -> {
+                        MapLibreHistoryMap(
+                            styleUrl = state.styleUrl,
+                            tileUrlTemplate = state.tileUrlTemplate,
+                            attribution = state.attribution,
+                            history = state.history ?: HistoryResponse(days = state.days),
                             onJournalClick = onSelectJournal,
                             onNightClick = onSelectNight
                         )
@@ -162,131 +182,231 @@ fun HistoryMapScreen(
     }
 }
 
-@SuppressLint("SetJavaScriptEnabled")
 @Composable
-private fun HistoryMapWebView(
-    tileUrl: String,
-    historyJson: String,
+private fun MapLibreHistoryMap(
+    styleUrl: String?,
+    tileUrlTemplate: String?,
+    attribution: String,
+    history: HistoryResponse,
     onJournalClick: (Long) -> Unit,
     onNightClick: (Long) -> Unit
 ) {
+    val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
+    val mapView = remember { MapView(context) }
+    var mapReady by remember { mutableStateOf(false) }
+
+    DisposableEffect(lifecycleOwner, mapView) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_CREATE -> mapView.onCreate(null)
+                Lifecycle.Event.ON_START -> mapView.onStart()
+                Lifecycle.Event.ON_RESUME -> mapView.onResume()
+                Lifecycle.Event.ON_PAUSE -> mapView.onPause()
+                Lifecycle.Event.ON_STOP -> mapView.onStop()
+                Lifecycle.Event.ON_DESTROY -> mapView.onDestroy()
+                else -> Unit
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        // If already past CREATE, bring MapView up.
+        mapView.onCreate(null)
+        mapView.onStart()
+        mapView.onResume()
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+            mapView.onPause()
+            mapView.onStop()
+            mapView.onDestroy()
+        }
+    }
+
     AndroidView(
         modifier = Modifier.fillMaxSize(),
-        factory = { context ->
-            WebView(context).apply {
-                settings.javaScriptEnabled = true
-                settings.domStorageEnabled = true
-                settings.cacheMode = WebSettings.LOAD_DEFAULT
-                settings.mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
-                settings.loadWithOverviewMode = true
-                settings.useWideViewPort = true
-                webChromeClient = WebChromeClient()
-                webViewClient = WebViewClient()
-                setLayerType(WebView.LAYER_TYPE_HARDWARE, null)
-                addJavascriptInterface(
-                    object {
-                        @android.webkit.JavascriptInterface
-                        fun onJournal(id: String) {
-                            id.toLongOrNull()?.let(onJournalClick)
+        factory = { mapView },
+        update = { view ->
+            if (!mapReady) {
+                view.getMapAsync { map ->
+                    mapReady = true
+                    val styleBuilder = when {
+                        !styleUrl.isNullOrBlank() -> Style.Builder().fromUri(styleUrl)
+                        !tileUrlTemplate.isNullOrBlank() -> Style.Builder().fromJson(
+                            rasterStyleJson(tileUrlTemplate, attribution)
+                        )
+                        else -> return@getMapAsync
+                    }
+                    map.setStyle(styleBuilder) { style ->
+                        addHistoryLayers(style, history)
+                        fitToHistory(map, history)
+                        map.addOnMapClickListener { point ->
+                            handleMapClick(map, point, onJournalClick, onNightClick)
                         }
-
-                        @android.webkit.JavascriptInterface
-                        fun onNight(id: String) {
-                            id.toLongOrNull()?.let(onNightClick)
-                        }
-                    },
-                    "NomadBridge"
-                )
-            }
-        },
-        update = { webView ->
-            val tag = "${tileUrl.hashCode()}:${historyJson.hashCode()}"
-            if (webView.tag != tag) {
-                webView.tag = tag
-                val html = buildMapHtml(normalizeTileUrl(tileUrl), historyJson)
-                webView.loadDataWithBaseURL(
-                    "https://cdn.jsdelivr.net/",
-                    html,
-                    "text/html",
-                    "UTF-8",
-                    null
-                )
+                    }
+                }
+            } else {
+                view.getMapAsync { map ->
+                    map.getStyle { style ->
+                        updateHistoryLayers(style, history)
+                        fitToHistory(map, history)
+                    }
+                }
             }
         }
     )
 }
 
-/** Stadia @2x tiles are 512px; Leaflet expects standard 256 tiles unless detectRetina is used. */
-private fun normalizeTileUrl(tileUrl: String): String =
-    tileUrl
-        .replace("@2x.png", ".png")
-        .replace("@2x.jpg", ".jpg")
-
-private fun buildMapHtml(tileUrl: String, historyJson: String): String {
-    val safeTile = JSONObject.quote(tileUrl)
-    val safeHistory = JSONObject.quote(historyJson)
+private fun rasterStyleJson(tileUrl: String, attribution: String): String {
+    val safeTiles = tileUrl.replace("\\", "\\\\").replace("\"", "\\\"")
+    val safeAttr = attribution.replace("\\", "\\\\").replace("\"", "\\\"")
     return """
-<!DOCTYPE html>
-<html>
-<head>
-<meta charset="utf-8"/>
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"/>
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css"/>
-<script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>
-<style>
-  html,body,#map{margin:0;padding:0;height:100%;width:100%;background:#0F172A}
-  .journal-pin{width:14px;height:14px;border-radius:50%;background:#DC2626;border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.4)}
-  .night-pin{width:28px;height:28px;border-radius:50%;border:3px solid #1E3A8A;background:rgba(30,58,138,.35);box-shadow:0 0 0 6px rgba(30,58,138,.25)}
-</style>
-</head>
-<body>
-<div id="map"></div>
-<script>
-const history = JSON.parse($safeHistory);
-const tileUrl = $safeTile;
-const map = L.map('map', { zoomControl: true }).setView([22.82, 86.22], 12);
-L.tileLayer(tileUrl, {
-  maxZoom: 19,
-  attribution: '© OpenStreetMap / Stadia'
-}).addTo(map);
+    {
+      "version": 8,
+      "name": "Nomad Stadia Raster",
+      "sources": {
+        "stadia": {
+          "type": "raster",
+          "tiles": ["$safeTiles"],
+          "tileSize": 256,
+          "attribution": "$safeAttr"
+        }
+      },
+      "layers": [
+        { "id": "stadia", "type": "raster", "source": "stadia" }
+      ]
+    }
+    """.trimIndent()
+}
 
-const bounds = [];
-(history.segments || []).forEach((seg) => {
-  const latlngs = (seg.points || []).map(p => [p.latitude, p.longitude]);
-  latlngs.forEach(ll => bounds.push(ll));
-  if (latlngs.length >= 2) {
-    L.polyline(latlngs, {
-      color: seg.kind === 'travel' ? '#DC2626' : '#1E3A8A',
-      weight: seg.kind === 'travel' ? 4 : 3,
-      opacity: 0.9
-    }).addTo(map);
-  } else if (latlngs.length === 1) {
-    L.circleMarker(latlngs[0], {
-      radius: 4,
-      color: '#1E3A8A',
-      fillColor: '#1E3A8A',
-      fillOpacity: 0.9
-    }).addTo(map);
-  }
-});
-(history.night_stays || []).forEach((n) => {
-  const ll = [n.latitude, n.longitude];
-  bounds.push(ll);
-  const el = L.divIcon({ className: '', html: '<div class="night-pin"></div>', iconSize: [28,28], iconAnchor: [14,14] });
-  L.marker(ll, { icon: el }).addTo(map).on('click', () => NomadBridge.onNight(String(n.night_stay_id)));
-});
-(history.journal_pins || []).forEach((j) => {
-  const ll = [j.latitude, j.longitude];
-  bounds.push(ll);
-  const el = L.divIcon({ className: '', html: '<div class="journal-pin"></div>', iconSize: [14,14], iconAnchor: [7,7] });
-  L.marker(ll, { icon: el }).addTo(map).on('click', () => NomadBridge.onJournal(String(j.entry_id)));
-});
-if (bounds.length) {
-  map.fitBounds(bounds, { padding: [48, 48], maxZoom: 14 });
+private fun addHistoryLayers(style: Style, history: HistoryResponse) {
+    if (style.getSource(SOURCE_TRACKS) == null) {
+        style.addSource(GeoJsonSource(SOURCE_TRACKS, trackCollection(history)))
+        style.addLayer(
+            LineLayer(LAYER_IDLE, SOURCE_TRACKS).withProperties(
+                PropertyFactory.lineColor(Color.parseColor("#1E3A8A")),
+                PropertyFactory.lineWidth(3.5f),
+                PropertyFactory.lineOpacity(0.9f)
+            ).withFilter(
+                Expression.eq(Expression.get("kind"), Expression.literal("idle"))
+            )
+        )
+        style.addLayer(
+            LineLayer(LAYER_TRAVEL, SOURCE_TRACKS).withProperties(
+                PropertyFactory.lineColor(Color.parseColor("#DC2626")),
+                PropertyFactory.lineWidth(4.5f),
+                PropertyFactory.lineOpacity(0.95f)
+            ).withFilter(
+                Expression.eq(Expression.get("kind"), Expression.literal("travel"))
+            )
+        )
+    } else {
+        updateHistoryLayers(style, history)
+        return
+    }
+
+    if (style.getSource(SOURCE_JOURNALS) == null) {
+        style.addSource(GeoJsonSource(SOURCE_JOURNALS, journalCollection(history)))
+        style.addLayer(
+            CircleLayer(LAYER_JOURNALS, SOURCE_JOURNALS).withProperties(
+                PropertyFactory.circleRadius(6f),
+                PropertyFactory.circleColor(Color.parseColor("#DC2626")),
+                PropertyFactory.circleStrokeWidth(2f),
+                PropertyFactory.circleStrokeColor(Color.WHITE)
+            )
+        )
+    }
+
+    if (style.getSource(SOURCE_NIGHTS) == null) {
+        style.addSource(GeoJsonSource(SOURCE_NIGHTS, nightCollection(history)))
+        style.addLayer(
+            CircleLayer(LAYER_NIGHTS, SOURCE_NIGHTS).withProperties(
+                PropertyFactory.circleRadius(12f),
+                PropertyFactory.circleColor(Color.parseColor("#661E3A8A")),
+                PropertyFactory.circleStrokeWidth(3f),
+                PropertyFactory.circleStrokeColor(Color.parseColor("#1E3A8A"))
+            )
+        )
+    }
 }
-setTimeout(() => map.invalidateSize(), 120);
-</script>
-</body>
-</html>
-""".trimIndent()
+
+private fun updateHistoryLayers(style: Style, history: HistoryResponse) {
+    (style.getSource(SOURCE_TRACKS) as? GeoJsonSource)?.setGeoJson(trackCollection(history))
+    (style.getSource(SOURCE_JOURNALS) as? GeoJsonSource)?.setGeoJson(journalCollection(history))
+    (style.getSource(SOURCE_NIGHTS) as? GeoJsonSource)?.setGeoJson(nightCollection(history))
 }
+
+private fun trackCollection(history: HistoryResponse): FeatureCollection {
+    val features = history.segments.mapNotNull { seg ->
+        if (seg.points.size < 2) return@mapNotNull null
+        val pts = seg.points.map { Point.fromLngLat(it.longitude, it.latitude) }
+        Feature.fromGeometry(LineString.fromLngLats(pts)).also {
+            it.addStringProperty("kind", seg.kind)
+        }
+    }
+    return FeatureCollection.fromFeatures(features)
+}
+
+private fun journalCollection(history: HistoryResponse): FeatureCollection {
+    val features = history.journal_pins.map { pin ->
+        Feature.fromGeometry(Point.fromLngLat(pin.longitude, pin.latitude)).also {
+            it.addNumberProperty("entry_id", pin.entry_id)
+        }
+    }
+    return FeatureCollection.fromFeatures(features)
+}
+
+private fun nightCollection(history: HistoryResponse): FeatureCollection {
+    val features = history.night_stays.map { night ->
+        Feature.fromGeometry(Point.fromLngLat(night.longitude, night.latitude)).also {
+            it.addNumberProperty("night_stay_id", night.night_stay_id)
+        }
+    }
+    return FeatureCollection.fromFeatures(features)
+}
+
+private fun fitToHistory(map: org.maplibre.android.maps.MapLibreMap, history: HistoryResponse) {
+    val points = buildList {
+        history.segments.forEach { seg ->
+            seg.points.forEach { add(LatLng(it.latitude, it.longitude)) }
+        }
+        history.journal_pins.forEach { add(LatLng(it.latitude, it.longitude)) }
+        history.night_stays.forEach { add(LatLng(it.latitude, it.longitude)) }
+    }
+    if (points.isEmpty()) {
+        map.animateCamera(CameraUpdateFactory.newLatLngZoom(LatLng(22.82, 86.22), 11.0))
+        return
+    }
+    if (points.size == 1) {
+        map.animateCamera(CameraUpdateFactory.newLatLngZoom(points.first(), 13.0))
+        return
+    }
+    val bounds = LatLngBounds.Builder().includes(points).build()
+    map.animateCamera(CameraUpdateFactory.newLatLngBounds(bounds, 72))
+}
+
+private fun handleMapClick(
+    map: org.maplibre.android.maps.MapLibreMap,
+    point: LatLng,
+    onJournalClick: (Long) -> Unit,
+    onNightClick: (Long) -> Unit
+): Boolean {
+    val screen = map.projection.toScreenLocation(point)
+    val journalHits = map.queryRenderedFeatures(screen, LAYER_JOURNALS)
+    journalHits.firstOrNull()?.getNumberProperty("entry_id")?.toLong()?.let {
+        onJournalClick(it)
+        return true
+    }
+    val nightHits = map.queryRenderedFeatures(screen, LAYER_NIGHTS)
+    nightHits.firstOrNull()?.getNumberProperty("night_stay_id")?.toLong()?.let {
+        onNightClick(it)
+        return true
+    }
+    return false
+}
+
+private const val SOURCE_TRACKS = "nomad-tracks"
+private const val SOURCE_JOURNALS = "nomad-journals"
+private const val SOURCE_NIGHTS = "nomad-nights"
+private const val LAYER_IDLE = "nomad-tracks-idle"
+private const val LAYER_TRAVEL = "nomad-tracks-travel"
+private const val LAYER_JOURNALS = "nomad-journals-layer"
+private const val LAYER_NIGHTS = "nomad-nights-layer"

@@ -66,9 +66,16 @@ fun MainRoute(
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val context = LocalContext.current
 
+    fun startTrackingService() {
+        val intent = Intent(context, TrackingService::class.java)
+        ContextCompat.startForegroundService(context, intent)
+        viewModel.setTrackingStatus(true)
+    }
+
     LaunchedEffect(uiState.loggedOut) {
         if (uiState.loggedOut) {
             context.stopService(Intent(context, TrackingService::class.java))
+            viewModel.setTrackingStatus(false)
             viewModel.consumeLogout()
             onLoggedOut()
         }
@@ -96,9 +103,24 @@ fun MainRoute(
             backgroundPermissionLauncher.launch(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
         }
         if (granted) {
-            val intent = Intent(context, TrackingService::class.java)
-            ContextCompat.startForegroundService(context, intent)
-            viewModel.setTrackingStatus(true)
+            startTrackingService()
+        }
+    }
+
+    // Resume tracking after permission was previously granted (until logout / manual stop).
+    LaunchedEffect(uiState.shouldAutoStartTracking) {
+        if (!uiState.shouldAutoStartTracking) return@LaunchedEffect
+        val fine = ContextCompat.checkSelfPermission(
+            context, Manifest.permission.ACCESS_FINE_LOCATION
+        ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+        val coarse = ContextCompat.checkSelfPermission(
+            context, Manifest.permission.ACCESS_COARSE_LOCATION
+        ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+        if (fine || coarse) {
+            startTrackingService()
+            viewModel.consumeAutoStart()
+        } else {
+            viewModel.consumeAutoStart()
         }
     }
 
@@ -110,6 +132,18 @@ fun MainRoute(
         onStopTracking = {
             context.stopService(Intent(context, TrackingService::class.java))
             viewModel.setTrackingStatus(false)
+        },
+        onToggleNotification = { visible ->
+            viewModel.setNotificationVisible(visible)
+            val action = if (visible) {
+                TrackingService.ACTION_SHOW_NOTIFICATION
+            } else {
+                TrackingService.ACTION_HIDE_NOTIFICATION
+            }
+            ContextCompat.startForegroundService(
+                context,
+                Intent(context, TrackingService::class.java).setAction(action)
+            )
         },
         onSync = viewModel::triggerManualSync,
         onRefresh = viewModel::refreshAll,
@@ -129,6 +163,7 @@ fun MainScreen(
     state: MainUiState,
     onStartTracking: () -> Unit,
     onStopTracking: () -> Unit,
+    onToggleNotification: (Boolean) -> Unit,
     onSync: () -> Unit,
     onRefresh: () -> Unit,
     onNearby: () -> Unit,
@@ -464,6 +499,22 @@ fun MainScreen(
                             contentColor = colors.onError
                         )
                     ) { Text("Stop tracking") }
+                }
+            }
+
+            if (state.isTracking) {
+                TextButton(
+                    onClick = { onToggleNotification(!state.notificationVisible) },
+                    modifier = Modifier.align(Alignment.CenterHorizontally)
+                ) {
+                    Text(
+                        text = if (state.notificationVisible) {
+                            stringResource(R.string.tracking_notification_hide)
+                        } else {
+                            stringResource(R.string.tracking_notification_show)
+                        },
+                        color = colors.primary
+                    )
                 }
             }
 

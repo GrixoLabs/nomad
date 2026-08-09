@@ -8,6 +8,7 @@ import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dev.grixo.nomad.data.datastore.PreferenceManager
 import dev.grixo.nomad.data.location.LocationBus
 import dev.grixo.nomad.data.network.NomadApi
 import dev.grixo.nomad.domain.model.OnboardingStatus
@@ -18,6 +19,7 @@ import dev.grixo.nomad.worker.SyncWorker
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.time.LocalDateTime
@@ -30,6 +32,7 @@ class MainViewModel @Inject constructor(
     private val deviceRepository: DeviceRepository,
     private val signalRepository: SignalRepository,
     private val userRepository: UserRepository,
+    private val preferenceManager: PreferenceManager,
     private val api: NomadApi,
     private val workManager: WorkManager,
     private val locationBus: LocationBus
@@ -42,6 +45,25 @@ class MainViewModel @Inject constructor(
         viewModelScope.launch {
             deviceRepository.initializeDevice()
             checkBackendHealth()
+            val enabled = preferenceManager.trackingEnabled.first()
+            val notifVisible = preferenceManager.trackingNotificationVisible.first()
+            _uiState.update {
+                it.copy(
+                    isTracking = enabled,
+                    notificationVisible = notifVisible,
+                    shouldAutoStartTracking = enabled
+                )
+            }
+        }
+        viewModelScope.launch {
+            preferenceManager.trackingNotificationVisible.collect { visible ->
+                _uiState.update { it.copy(notificationVisible = visible) }
+            }
+        }
+        viewModelScope.launch {
+            preferenceManager.trackingEnabled.collect { enabled ->
+                _uiState.update { it.copy(isTracking = enabled) }
+            }
         }
         viewModelScope.launch {
             userRepository.observeOnboardingStatus().collect { status ->
@@ -100,7 +122,23 @@ class MainViewModel @Inject constructor(
     }
 
     fun setTrackingStatus(isTracking: Boolean) {
-        _uiState.update { it.copy(isTracking = isTracking) }
+        viewModelScope.launch {
+            preferenceManager.setTrackingEnabled(isTracking)
+            _uiState.update {
+                it.copy(isTracking = isTracking, shouldAutoStartTracking = false)
+            }
+        }
+    }
+
+    fun consumeAutoStart() {
+        _uiState.update { it.copy(shouldAutoStartTracking = false) }
+    }
+
+    fun setNotificationVisible(visible: Boolean) {
+        viewModelScope.launch {
+            preferenceManager.setTrackingNotificationVisible(visible)
+            _uiState.update { it.copy(notificationVisible = visible) }
+        }
     }
 
     fun setPermissionDenied(denied: Boolean) {

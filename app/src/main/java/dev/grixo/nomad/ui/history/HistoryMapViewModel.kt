@@ -10,15 +10,14 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import kotlinx.serialization.encodeToString
-import kotlinx.serialization.json.Json
 import javax.inject.Inject
 
 data class HistoryMapUiState(
     val days: Int = 7,
     val loading: Boolean = true,
+    val styleUrl: String? = null,
     val tileUrlTemplate: String? = null,
-    val historyJson: String? = null,
+    val attribution: String = "",
     val history: HistoryResponse? = null,
     val errorMessage: String? = null,
     val detailTitle: String? = null,
@@ -29,8 +28,6 @@ data class HistoryMapUiState(
 class HistoryMapViewModel @Inject constructor(
     private val journalRepository: JournalRepository
 ) : ViewModel() {
-
-    private val json = Json { encodeDefaults = true; ignoreUnknownKeys = true }
 
     private val _uiState = MutableStateFlow(HistoryMapUiState())
     val uiState: StateFlow<HistoryMapUiState> = _uiState.asStateFlow()
@@ -85,8 +82,16 @@ class HistoryMapViewModel @Inject constructor(
             _uiState.update { it.copy(loading = true, errorMessage = null, detailTitle = null) }
 
             val mapConfig = journalRepository.loadMapConfig()
-            val tileUrl = mapConfig.getOrNull()?.tile_url_template
-                ?: OSM_FALLBACK_TILES
+            val config = mapConfig.getOrNull()
+            val tileUrl = config?.tile_url_template
+            val styleUrl = config?.style_url
+
+            if (tileUrl.isNullOrBlank() && styleUrl.isNullOrBlank()) {
+                _uiState.update {
+                    it.copy(loading = false, errorMessage = "Map unavailable")
+                }
+                return@launch
+            }
 
             val historyResult = journalRepository.loadHistory(_uiState.value.days)
             val hist = historyResult.getOrElse {
@@ -96,21 +101,13 @@ class HistoryMapViewModel @Inject constructor(
             _uiState.update {
                 it.copy(
                     loading = false,
+                    styleUrl = styleUrl,
                     tileUrlTemplate = tileUrl,
+                    attribution = config?.attribution.orEmpty(),
                     history = hist,
-                    historyJson = json.encodeToString(hist),
-                    errorMessage = when {
-                        historyResult.isFailure && mapConfig.isFailure -> "Map unavailable"
-                        historyResult.isFailure -> null // still show map with empty tracks
-                        else -> null
-                    }
+                    errorMessage = null
                 )
             }
         }
-    }
-
-    companion object {
-        private const val OSM_FALLBACK_TILES =
-            "https://tile.openstreetmap.org/{z}/{x}/{y}.png"
     }
 }

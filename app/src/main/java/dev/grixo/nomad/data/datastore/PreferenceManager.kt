@@ -33,9 +33,21 @@ class PreferenceManager @Inject constructor(
     private val journalEnabledKey = booleanPreferencesKey("journal_enabled")
     private val accessTokenKey = stringPreferencesKey("access_token")
     private val refreshTokenKey = stringPreferencesKey("refresh_token")
+    private val trackingEnabledKey = booleanPreferencesKey("tracking_enabled")
+    private val trackingNotificationVisibleKey =
+        booleanPreferencesKey("tracking_notification_visible")
 
     val deviceUuid: Flow<String?> = context.dataStore.data.map { it[deviceUuidKey] }
     val deviceId: Flow<Long?> = context.dataStore.data.map { it[deviceIdKey] }
+
+    val trackingEnabled: Flow<Boolean> = context.dataStore.data.map {
+        it[trackingEnabledKey] == true
+    }
+
+    /** When false, the foreground notification is removed; tracking continues. */
+    val trackingNotificationVisible: Flow<Boolean> = context.dataStore.data.map {
+        it[trackingNotificationVisibleKey] != false
+    }
 
     val onboardingStatus: Flow<OnboardingStatus> = context.dataStore.data.map { prefs ->
         when (prefs[onboardingStatusKey]) {
@@ -91,6 +103,14 @@ class PreferenceManager @Inject constructor(
         }
     }
 
+    suspend fun setTrackingEnabled(enabled: Boolean) {
+        context.dataStore.edit { it[trackingEnabledKey] = enabled }
+    }
+
+    suspend fun setTrackingNotificationVisible(visible: Boolean) {
+        context.dataStore.edit { it[trackingNotificationVisibleKey] = visible }
+    }
+
     suspend fun skipRegistration() {
         context.dataStore.edit { prefs ->
             prefs[onboardingStatusKey] = OnboardingStatus.SKIPPED.name
@@ -103,6 +123,7 @@ class PreferenceManager @Inject constructor(
         context.dataStore.edit { prefs ->
             prefs[onboardingStatusKey] = OnboardingStatus.PENDING.name
             prefs[journalEnabledKey] = false
+            prefs[trackingEnabledKey] = false
             prefs.remove(userNameKey)
             prefs.remove(userEmailKey)
             prefs.remove(userPhoneKey)

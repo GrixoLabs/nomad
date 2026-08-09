@@ -61,5 +61,6 @@ data class HistoryResponse(
 data class MapConfigResponse(
     val tile_url_template: String,
     val attribution: String = "",
-    val style: String = "alidade_smooth"
+    val style: String = "alidade_smooth",
+    val style_url: String? = null
 )

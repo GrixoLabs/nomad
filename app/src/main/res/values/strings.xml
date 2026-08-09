@@ -43,6 +43,9 @@
     <string name="history_title">History map</string>
     <string name="logout">Log out</string>
     <string name="tracking_channel_name">Nomad Tracking</string>
-    <string name="tracking_channel_desc">Used while Nomad collects safety signals</string>
-    <string name="tracking_notification_title">Nomad is tracking</string>
+    <string name="tracking_channel_desc">Quiet status while Nomad tracks in the background</string>
+    <string name="tracking_notification_title">Nomad is doing its work.Travel worry free!</string>
+    <string name="tracking_notification_hide">Hide notification</string>
+    <string name="tracking_notification_show">Show notification</string>
+    <string name="hide_tracking_notification">Hide tracking notification</string>
 </resources>
