@@ -86,6 +86,7 @@ class UserRepositoryImpl @Inject constructor(
                 phone = phone,
                 name = profile.name.trim()
             )
+            // Prefer email OTP whenever email is present (even if phone is also set).
             pendingChannel = if (email != null) "email" else "phone"
             Result.success(Unit)
         } catch (e: Exception) {
