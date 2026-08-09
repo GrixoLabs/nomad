@@ -1,0 +1,10 @@
+[Unit]
+Description=Flush Nomad weather_cache every 4 hours (UTC)
+
+[Timer]
+OnCalendar=*-*-* 00,04,08,12,16,20:00:00 UTC
+Persistent=true
+Unit=nomad-flush-weather.service
+
+[Install]
+WantedBy=timers.target
