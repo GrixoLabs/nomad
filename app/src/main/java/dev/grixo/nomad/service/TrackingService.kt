@@ -88,18 +88,29 @@ class TrackingService : Service() {
                 stopSelf()
                 return START_NOT_STICKY
             }
+            ACTION_REFRESH_NOW -> {
+                // Sync / pull-to-refresh: force a fresh fix, upload it, drain offline queue.
+                Timber.i("Refresh now — fetching location and syncing offline queue")
+                ensureTrackingAndRefresh()
+                return START_STICKY
+            }
         }
 
         Timber.d("TrackingService started")
+        ensureTrackingAndRefresh()
+        return START_STICKY
+    }
+
+    private fun ensureTrackingAndRefresh() {
         serviceScope.launch {
             preferenceManager.setTrackingEnabled(true)
             preferenceManager.setTrackingNotificationVisible(true)
         }
         promoteToForeground()
         SyncScheduler.enqueuePeriodic(WorkManager.getInstance(this))
-        fetchImmediateLocation()
+        SyncScheduler.enqueueOnce(WorkManager.getInstance(this))
         requestLocationUpdates()
-        return START_STICKY
+        fetchImmediateLocation()
     }
 
     private fun promoteToForeground() {
@@ -195,5 +206,7 @@ class TrackingService : Service() {
         const val ACTION_HIDE_NOTIFICATION = "dev.grixo.nomad.action.HIDE_NOTIFICATION"
         const val ACTION_SHOW_NOTIFICATION = "dev.grixo.nomad.action.SHOW_NOTIFICATION"
         const val ACTION_STOP_TRACKING = "dev.grixo.nomad.action.STOP_TRACKING"
+        /** Force GPS fix + upload + offline drain (Sync now / pull-to-refresh). */
+        const val ACTION_REFRESH_NOW = "dev.grixo.nomad.action.REFRESH_NOW"
     }
 }

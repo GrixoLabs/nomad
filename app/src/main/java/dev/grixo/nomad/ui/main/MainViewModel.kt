@@ -12,12 +12,17 @@ import dev.grixo.nomad.domain.repository.DeviceRepository
 import dev.grixo.nomad.domain.repository.SignalRepository
 import dev.grixo.nomad.domain.repository.UserRepository
 import dev.grixo.nomad.worker.SyncScheduler
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import java.time.Instant
 import java.time.LocalDateTime
 import java.time.ZoneId
@@ -38,6 +43,10 @@ class MainViewModel @Inject constructor(
 
     private val _uiState = MutableStateFlow(MainUiState())
     val uiState: StateFlow<MainUiState> = _uiState.asStateFlow()
+
+    /** UI starts TrackingService with ACTION_REFRESH_NOW when this emits. */
+    private val _locationRefreshRequests = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+    val locationRefreshRequests: SharedFlow<Unit> = _locationRefreshRequests.asSharedFlow()
 
     init {
         viewModelScope.launch {
@@ -282,24 +291,52 @@ class MainViewModel @Inject constructor(
         _uiState.update { it.copy(contextLoading = false) }
     }
 
+    /**
+     * Sync now and pull-to-refresh share this path:
+     * ask TrackingService for a fresh GPS fix + upload, drain offline queue,
+     * then refresh place/weather from the new coordinates.
+     */
     fun triggerManualSync() {
-        SyncScheduler.enqueueOnce(workManager)
-        checkBackendHealth()
+        refreshLocationDetails(showPullSpinner = false)
     }
 
     fun refreshAll() {
+        refreshLocationDetails(showPullSpinner = true)
+    }
+
+    private fun refreshLocationDetails(showPullSpinner: Boolean) {
         viewModelScope.launch {
-            _uiState.update { it.copy(isRefreshing = true, errorMessage = null) }
+            _uiState.update {
+                it.copy(
+                    isRefreshing = showPullSpinner || it.isRefreshing,
+                    contextLoading = true,
+                    errorMessage = null
+                )
+            }
             try {
+                _locationRefreshRequests.emit(Unit)
+                SyncScheduler.enqueueOnce(workManager)
                 checkBackendHealth()
-                triggerManualSync()
-                val lat = _uiState.value.latitude
-                val lon = _uiState.value.longitude
-                if (lat != null && lon != null) {
-                    refreshPlaceContextSuspend(lat, lon)
+
+                // Skip replayed last fix; wait for the refresh-triggered upload/publish.
+                val event = withTimeoutOrNull(15_000L) {
+                    locationBus.events.drop(1).first()
+                }
+                if (event != null) {
+                    refreshPlaceContextSuspend(event.latitude, event.longitude)
+                } else {
+                    val lat = _uiState.value.latitude
+                    val lon = _uiState.value.longitude
+                    if (lat != null && lon != null) {
+                        refreshPlaceContextSuspend(lat, lon)
+                    } else {
+                        _uiState.update {
+                            it.copy(errorMessage = "Waiting for location — turn on tracking or try again")
+                        }
+                    }
                 }
             } finally {
-                _uiState.update { it.copy(isRefreshing = false) }
+                _uiState.update { it.copy(isRefreshing = false, contextLoading = false) }
             }
         }
     }
