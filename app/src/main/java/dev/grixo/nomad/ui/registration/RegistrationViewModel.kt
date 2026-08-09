@@ -8,7 +8,6 @@ import dev.grixo.nomad.domain.model.UserProfile
 import dev.grixo.nomad.domain.repository.DeviceRepository
 import dev.grixo.nomad.domain.repository.UserRepository
 import dev.grixo.nomad.utils.AuthErrorMapper
-import dev.grixo.nomad.utils.PhoneNormalizer
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -34,7 +33,6 @@ class RegistrationViewModel @Inject constructor(
 
     fun onNameChange(value: String) = _uiState.update { it.copy(name = value, errorMessage = null) }
     fun onEmailChange(value: String) = _uiState.update { it.copy(email = value, errorMessage = null) }
-    fun onPhoneChange(value: String) = _uiState.update { it.copy(phone = value, errorMessage = null) }
     fun onContactChange(value: String) =
         _uiState.update { it.copy(contact = value, errorMessage = null) }
     fun onAgeChange(value: String) = _uiState.update {
@@ -126,14 +124,12 @@ class RegistrationViewModel @Inject constructor(
 
     fun submitProfile() {
         val state = _uiState.value
-        val email = state.email.trim().lowercase().takeIf { it.isNotEmpty() }
-        val phone = PhoneNormalizer.normalize(state.phone)
+        val email = state.email.trim().lowercase().takeIf { it.isNotEmpty() && it.contains('@') }
         val age = state.age.toIntOrNull()
 
         val error = when {
             state.name.isBlank() -> "Name is required"
-            email == null && phone == null -> "Add an email or phone number"
-            state.phone.isNotBlank() && phone == null -> "Enter a valid phone number"
+            email == null -> "Email is required"
             age == null || age !in 13..120 -> "Enter an age between 13 and 120"
             state.password.length < 8 -> "Password must be at least 8 characters"
             state.password != state.confirmPassword -> "Passwords do not match"
@@ -166,7 +162,7 @@ class RegistrationViewModel @Inject constructor(
                 profile = UserProfile(
                     name = state.name.trim(),
                     email = email,
-                    phone = phone,
+                    phone = null,
                     age = age!!,
                     gender = state.gender
                 ),
@@ -174,13 +170,7 @@ class RegistrationViewModel @Inject constructor(
             )
             _uiState.update {
                 if (result.isSuccess) {
-                    // Email is the OTP channel when both email and phone are provided.
-                    val hint = when {
-                        email != null && phone != null ->
-                            "Code sent to $email (email is used when both are provided)"
-                        email != null -> "Code sent to $email"
-                        else -> "Code sent to $phone"
-                    }
+                    val hint = "Code sent to $email"
                     it.copy(
                         isSubmitting = false,
                         step = RegistrationStep.OTP,
@@ -234,9 +224,9 @@ class RegistrationViewModel @Inject constructor(
 
     fun signIn() {
         val state = _uiState.value
-        val (email, phone) = parseContact(state.contact)
+        val email = parseEmail(state.contact)
         val error = when {
-            email == null && phone == null -> "Enter email or phone"
+            email == null -> "Enter your email"
             state.password.length < 8 -> "Password must be at least 8 characters"
             else -> null
         }
@@ -247,7 +237,7 @@ class RegistrationViewModel @Inject constructor(
         viewModelScope.launch {
             _uiState.update { it.copy(isSubmitting = true, errorMessage = null, infoMessage = null) }
             deviceRepository.initializeDevice()
-            val result = userRepository.login(email, phone, state.password)
+            val result = userRepository.login(email, phone = null, state.password)
             _uiState.update {
                 if (result.isSuccess) {
                     it.copy(isSubmitting = false, completed = true)
@@ -263,22 +253,21 @@ class RegistrationViewModel @Inject constructor(
 
     fun sendForgotCode() {
         val state = _uiState.value
-        val (email, phone) = parseContact(state.contact)
-        if (email == null && phone == null) {
-            _uiState.update { it.copy(errorMessage = "Enter email or phone") }
+        val email = parseEmail(state.contact)
+        if (email == null) {
+            _uiState.update { it.copy(errorMessage = "Enter your email") }
             return
         }
         viewModelScope.launch {
             _uiState.update { it.copy(isSubmitting = true, errorMessage = null, infoMessage = null) }
-            val result = userRepository.forgotPassword(email, phone)
+            val result = userRepository.forgotPassword(email, phone = null)
             _uiState.update {
                 if (result.isSuccess) {
-                    val dest = email ?: phone
                     it.copy(
                         isSubmitting = false,
                         step = RegistrationStep.RESET,
-                        otpHint = "Code sent to $dest",
-                        infoMessage = "Code sent to $dest",
+                        otpHint = "Code sent to $email",
+                        infoMessage = "Code sent to $email",
                         password = "",
                         confirmPassword = "",
                         otp = ""
@@ -295,9 +284,9 @@ class RegistrationViewModel @Inject constructor(
 
     fun submitResetPassword() {
         val state = _uiState.value
-        val (email, phone) = parseContact(state.contact)
+        val email = parseEmail(state.contact)
         val error = when {
-            email == null && phone == null -> "Enter email or phone"
+            email == null -> "Enter your email"
             state.otp.length < 4 -> "Enter the verification code"
             state.password.length < 8 -> "Password must be at least 8 characters"
             state.password != state.confirmPassword -> "Passwords do not match"
@@ -311,7 +300,7 @@ class RegistrationViewModel @Inject constructor(
             _uiState.update { it.copy(isSubmitting = true, errorMessage = null, infoMessage = null) }
             val result = userRepository.resetPassword(
                 email = email,
-                phone = phone,
+                phone = null,
                 otp = state.otp,
                 newPassword = state.password
             )
@@ -344,15 +333,9 @@ class RegistrationViewModel @Inject constructor(
     }
 
     companion object {
-        /** Treat values with @ as email; otherwise as phone. */
-        fun parseContact(raw: String): Pair<String?, String?> {
-            val trimmed = raw.trim()
-            if (trimmed.isEmpty()) return null to null
-            return if (trimmed.contains('@')) {
-                trimmed.lowercase() to null
-            } else {
-                null to PhoneNormalizer.normalize(trimmed)
-            }
+        fun parseEmail(raw: String): String? {
+            val trimmed = raw.trim().lowercase()
+            return trimmed.takeIf { it.isNotEmpty() && it.contains('@') }
         }
     }
 }

@@ -14,8 +14,9 @@ data class RegistrationUiState(
     val step: RegistrationStep = RegistrationStep.PROFILE,
     val name: String = "",
     val email: String = "",
+    /** Kept for wire/state compat; phone registration is disabled. */
     val phone: String = "",
-    /** Single contact field for sign-in / forgot (email or phone). */
+    /** Sign-in / forgot contact — email only for now. */
     val contact: String = "",
     val age: String = "",
     val gender: Gender = Gender.PREFER_NOT,
