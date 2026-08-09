@@ -31,7 +31,8 @@ def register(request: RegisterRequest, db: Session = Depends(get_db)):
         phone_verified=user.phone_verified,
         journal_enabled=user.journal_enabled,
         message=(
-            "Account created. Verify email and/or phone with OTP to activate."
+            "Account created and verification code sent. "
+            "Enter the OTP to activate."
         ),
     )
 
