@@ -147,7 +147,7 @@ class HistoryService:
         for plot in plots:
             if plot.total_time_at_location_seconds < MIN_PLOT_SECONDS:
                 continue
-            key = (plot.latitude, plot.longitude)
+            key = (round_cell(plot.latitude), round_cell(plot.longitude))
             cell_journals = journals_by_cell.get(key, [])
             plot_points.append(
                 PlotPointResponse(
