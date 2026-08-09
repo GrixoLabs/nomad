@@ -1,5 +1,5 @@
 # ----------------------------
-# Android
+# Android leftovers (if present)
 # ----------------------------
 *.iml
 .gradle/
@@ -10,34 +10,35 @@ build/
 captures/
 .externalNativeBuild/
 .cxx/
+app/build/
+app/src/
 
 # ----------------------------
 # Python
 # ----------------------------
 .venv/
+venv/
 __pycache__/
 *.py[cod]
 *.so
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
 
 # ----------------------------
 # Environment
 # ----------------------------
 .env
-.env.*
+.env.local
+.env.*.local
+!.env.example
 
 # ----------------------------
-# Logs
+# Logs / OS / IDE
 # ----------------------------
 logs/
 *.log
-
-# ----------------------------
-# macOS / Windows
-# ----------------------------
 .DS_Store
 Thumbs.db
-
-# ----------------------------
-# IDE
-# ----------------------------
 .vscode/
