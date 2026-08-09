@@ -13,11 +13,13 @@ Full brand lockup: emblem + **NOMAD** + tagline *Your Journey. Protected.*
 
 `SplashScreen` loads `@drawable/splash_nomad`; Android picks day/night automatically.
 
-## 2) Home-screen launcher icons
+## 2) App favicon / home-screen launcher
+
+Default favicon is the **light wordmark logo on white** (emblem + NOMAD).
 
 | Variant | Put files here |
 |--------|----------------|
-| **Light / default** | `app/src/main/res/mipmap-mdpi/ic_launcher.png` (+ `ic_launcher_round.png`) |
+| **Light / default (favicon)** | `app/src/main/res/mipmap-mdpi/ic_launcher.png` (+ `ic_launcher_round.png`) |
 | | same names in `mipmap-hdpi` … `mipmap-xxxhdpi` |
 | **Dark** | `app/src/main/res/mipmap-night-mdpi/ic_launcher.png` (+ round) |
 | | same for `mipmap-night-hdpi` … `mipmap-night-xxxhdpi` |
@@ -27,7 +29,16 @@ Full brand lockup: emblem + **NOMAD** + tagline *Your Journey. Protected.*
 
 Suggested legacy sizes (px): mdpi 48, hdpi 72, xhdpi 96, xxhdpi 144, xxxhdpi 192.
 
-Light adaptive background: `#F8FAFC`. Dark: `#000000`.
+Light adaptive background: `#FFFFFF`. Dark: `#000000`.
+
+## 2b) Notification icons
+
+| Use | Path |
+|-----|------|
+| Shade / large (logo on white) | `app/src/main/res/drawable/ic_notification.png` |
+| Status-bar small (white silhouette) | `drawable-*/ic_stat_nomad.png` (+ `drawable/ic_stat_nomad.png`) |
+
+`NotificationHelper` uses `ic_stat_nomad` as `setSmallIcon` and `ic_notification` as `setLargeIcon`.
 
 ## 3) In-app logos (header / registration)
 
