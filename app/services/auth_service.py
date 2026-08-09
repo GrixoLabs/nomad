@@ -58,22 +58,19 @@ class AuthService:
 
     def register(self, db: Session, request: RegisterRequest) -> User:
         """
-        Create a pending user and send OTP in one shot.
+        Create a pending user and send email OTP in one shot.
 
-        When both email and phone are provided, email is the verification
-        channel (phone is stored on the profile but SMS is not sent).
-
+        Phone/SMS registration is temporarily disabled — email is required.
         If OTP delivery fails, the user (and any OTP row) is rolled back so a
         failed registration does not leave a row in nomad.users.
         """
-        email = str(request.email).lower() if request.email else None
-        phone = request.phone_number
+        email = str(request.email).lower()
 
-        existing = self.users.get_by_email_or_phone(db, email=email, phone=phone)
+        existing = self.users.get_by_email_or_phone(db, email=email, phone=None)
         if existing:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
-                detail="An account with this email or phone already exists",
+                detail="An account with this email already exists",
             )
 
         if request.device_uuid is not None:
@@ -87,7 +84,7 @@ class AuthService:
         user = User(
             user_id=uuid4(),
             email=email,
-            phone_number=phone,
+            phone_number=None,
             password_hash=hash_password(request.password),
             name=request.name,
             age=request.age,
@@ -103,13 +100,10 @@ class AuthService:
         db.add(user)
         db.flush()
 
-        # Email wins when both are present.
-        use_email = email is not None
-        channel = "EMAIL" if use_email else "SMS"
         otp = generate_otp()
         code = VerificationCode(
             user_id=user.user_id,
-            verification_type=channel,
+            verification_type="EMAIL",
             otp_hash=hash_otp(otp),
             expires_at=otp_expiry(),
         )
@@ -117,26 +111,15 @@ class AuthService:
         db.flush()
 
         try:
-            if use_email:
-                self.email.send_otp(email, otp)  # type: ignore[arg-type]
-            else:
-                assert phone is not None
-                self.sms.send_otp(phone, otp)
+            self.email.send_otp(email, otp)
         except Exception as exc:  # noqa: BLE001
             db.rollback()
-            if use_email:
-                detail = (
-                    "Could not send verification email (email provider error). "
-                    "Registration was not saved — try again."
-                )
-            else:
-                detail = (
-                    "Could not send verification SMS (Twilio error). "
-                    "Registration was not saved — try again."
-                )
             raise HTTPException(
                 status_code=status.HTTP_502_BAD_GATEWAY,
-                detail=detail,
+                detail=(
+                    "Could not send verification email (email provider error). "
+                    "Registration was not saved — try again."
+                ),
             ) from exc
 
         db.commit()

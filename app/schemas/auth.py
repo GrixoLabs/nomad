@@ -29,7 +29,8 @@ def _normalize_phone(value: str | None) -> str | None:
 
 class RegisterRequest(BaseModel):
     name: str | None = Field(default=None, max_length=100)
-    email: EmailStr | None = None
+    email: EmailStr
+    # Phone registration temporarily disabled — accepted for wire compat, ignored.
     phone_number: str | None = Field(default=None, max_length=20)
     password: str = Field(min_length=8, max_length=128)
     confirm_password: str = Field(min_length=8, max_length=128)
@@ -39,8 +40,9 @@ class RegisterRequest(BaseModel):
 
     @field_validator("phone_number")
     @classmethod
-    def validate_phone(cls, value: str | None) -> str | None:
-        return _normalize_phone(value)
+    def ignore_phone(cls, value: str | None) -> str | None:
+        # Drop any client-supplied phone until SMS registration is re-enabled.
+        return None
 
     @field_validator("name")
     @classmethod
@@ -59,8 +61,6 @@ class RegisterRequest(BaseModel):
 
     @model_validator(mode="after")
     def validate_register(self) -> "RegisterRequest":
-        if not self.email and not self.phone_number:
-            raise ValueError("Either email or phone_number is required")
         if self.password != self.confirm_password:
             raise ValueError("password and confirm_password do not match")
         return self
