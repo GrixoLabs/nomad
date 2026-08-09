@@ -30,19 +30,17 @@ WEATHER_CACHE_MAX_AGE = timedelta(hours=4)
 
 NEARBY_RADIUS_M = 25_000
 GOOGLE_PLACES_NEARBY_URL = "https://places.googleapis.com/v1/places:searchNearby"
-# Query one type per request (more reliable than a large includedTypes list).
-GOOGLE_POI_QUERY_TYPES = (
+# Single Nearby Search request — keep this list modest so the edge proxy
+# (Cloudflare/nginx) does not 504 while we wait on Google.
+GOOGLE_POI_TYPES = (
     "tourist_attraction",
     "museum",
     "hindu_temple",
     "zoo",
-    "amusement_park",
     "park",
-    "art_gallery",
-    "church",
-    "mosque",
-    "aquarium",
+    "amusement_park",
 )
+GOOGLE_PLACES_TIMEOUT_SECONDS = 8.0
 _NAME_STOPWORDS = (
     "zoological",
     "park",
@@ -359,40 +357,9 @@ class PlaceService:
                 detail="GOOGLE_MAP_API is not configured on the server",
             )
 
-        by_id: dict[str, dict[str, Any]] = {}
-        last_error: str | None = None
-        for place_type in GOOGLE_POI_QUERY_TYPES:
-            try:
-                batch = self._search_nearby_type(lat, lon, place_type, api_key)
-            except HTTPException as exc:
-                # Keep trying other types; remember the most recent failure detail.
-                last_error = str(exc.detail)
-                logger.warning("Google Places type=%s failed: %s", place_type, last_error)
-                continue
-            for item in batch:
-                existing = by_id.get(item["source_id"])
-                if existing is None or item["popularity_score"] > existing["popularity_score"]:
-                    by_id[item["source_id"]] = item
-
-        results = list(by_id.values())
-        if not results and last_error:
-            raise HTTPException(
-                status_code=502,
-                detail=(
-                    f"Google Places failed: {last_error}. "
-                    "If the key is Android-restricted, use a separate server key "
-                    "(IP / unrestricted) for GOOGLE_MAP_API."
-                ),
-            )
-        results.sort(key=lambda x: -x["popularity_score"])
-        return results
-
-    def _search_nearby_type(
-        self, lat: float, lon: float, place_type: str, api_key: str
-    ) -> list[dict[str, Any]]:
         body = {
-            "includedTypes": [place_type],
-            "maxResultCount": 10,
+            "includedTypes": list(GOOGLE_POI_TYPES),
+            "maxResultCount": 20,
             "rankPreference": "POPULARITY",
             "locationRestriction": {
                 "circle": {
@@ -409,18 +376,43 @@ class PlaceService:
                 "places.types,places.rating,places.userRatingCount"
             ),
         }
-        with self._client() as client:
-            resp = client.post(GOOGLE_PLACES_NEARBY_URL, json=body, headers=headers)
+        timeout = httpx.Timeout(GOOGLE_PLACES_TIMEOUT_SECONDS, connect=5.0)
+        try:
+            with httpx.Client(timeout=timeout, follow_redirects=True) as client:
+                resp = client.post(
+                    GOOGLE_PLACES_NEARBY_URL, json=body, headers=headers
+                )
+        except httpx.TimeoutException as exc:
+            logger.warning("Google Places timed out after %ss", GOOGLE_PLACES_TIMEOUT_SECONDS)
+            raise HTTPException(
+                status_code=504,
+                detail=(
+                    f"Google Places timed out after {GOOGLE_PLACES_TIMEOUT_SECONDS:.0f}s. "
+                    "Check server egress to places.googleapis.com and that GOOGLE_MAP_API "
+                    "is a server key with Places API (New) enabled."
+                ),
+            ) from exc
+        except httpx.HTTPError as exc:
+            logger.warning("Google Places transport error: %s", exc)
+            raise HTTPException(
+                status_code=502,
+                detail=f"Google Places unreachable: {exc}",
+            ) from exc
 
         if resp.status_code >= 400:
             detail = self._google_error_detail(resp)
             logger.warning(
-                "Google Places error type=%s status=%s detail=%s",
-                place_type,
+                "Google Places error status=%s detail=%s",
                 resp.status_code,
                 detail,
             )
-            raise HTTPException(status_code=502, detail=detail)
+            raise HTTPException(
+                status_code=502,
+                detail=(
+                    f"{detail}. If the key is Android-restricted, use a separate "
+                    "server key (IP / unrestricted) for GOOGLE_MAP_API."
+                ),
+            )
 
         payload = resp.json()
         results: list[dict[str, Any]] = []
@@ -437,8 +429,9 @@ class PlaceService:
             if haversine_m(lat, lon, elat, elon) > NEARBY_RADIUS_M:
                 continue
             types = [str(t) for t in (place.get("types") or []) if t]
-            category = place_type if place_type in types else (
-                types[0] if types else place_type
+            category = next(
+                (t for t in types if t in GOOGLE_POI_TYPES),
+                types[0] if types else "tourist_attraction",
             )
             place_id = str(place.get("id") or f"{elat:.5f},{elon:.5f}")
             rating = place.get("rating")
@@ -460,6 +453,7 @@ class PlaceService:
                     },
                 }
             )
+        results.sort(key=lambda x: -x["popularity_score"])
         return results
 
     @staticmethod
