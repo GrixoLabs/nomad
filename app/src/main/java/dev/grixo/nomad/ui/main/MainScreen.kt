@@ -114,6 +114,31 @@ fun MainRoute(
         }
     }
 
+    fun refreshLocationNow() {
+        val fine = ContextCompat.checkSelfPermission(
+            context, Manifest.permission.ACCESS_FINE_LOCATION
+        ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+        val coarse = ContextCompat.checkSelfPermission(
+            context, Manifest.permission.ACCESS_COARSE_LOCATION
+        ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+        if (!fine && !coarse) {
+            foregroundPermissionLauncher.launch(foregroundPermissions)
+            return
+        }
+        ContextCompat.startForegroundService(
+            context,
+            Intent(context, TrackingService::class.java)
+                .setAction(TrackingService.ACTION_REFRESH_NOW)
+        )
+        viewModel.setTrackingStatus(true)
+    }
+
+    LaunchedEffect(Unit) {
+        viewModel.locationRefreshRequests.collect {
+            refreshLocationNow()
+        }
+    }
+
     // Resume tracking after permission was previously granted (until logout / manual stop).
     LaunchedEffect(uiState.shouldAutoStartTracking) {
         if (!uiState.shouldAutoStartTracking) return@LaunchedEffect

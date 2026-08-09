@@ -35,9 +35,10 @@ object SyncScheduler {
         val request = OneTimeWorkRequestBuilder<SyncWorker>()
             .setConstraints(constraints)
             .build()
+        // REPLACE so Sync now / refresh always runs even if a prior one-shot is queued.
         workManager.enqueueUniqueWork(
             ONE_SHOT_WORK,
-            ExistingWorkPolicy.KEEP,
+            ExistingWorkPolicy.REPLACE,
             request
         )
     }
