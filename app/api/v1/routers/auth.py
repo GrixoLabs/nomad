@@ -24,16 +24,24 @@ service = AuthService()
 @router.post("/register", response_model=RegisterResponse, status_code=201)
 def register(request: RegisterRequest, db: Session = Depends(get_db)):
     user = service.register(db, request)
+    if user.email:
+        dest = f"email ({user.email})"
+        if user.phone_number:
+            channel_note = (
+                f"Verification code sent to {dest}. "
+                "Email is used when both email and phone are provided."
+            )
+        else:
+            channel_note = f"Verification code sent to {dest}."
+    else:
+        channel_note = f"Verification code sent by SMS to {user.phone_number}."
     return RegisterResponse(
         user_id=user.user_id,
         account_status=user.account_status,
         email_verified=user.email_verified,
         phone_verified=user.phone_verified,
         journal_enabled=user.journal_enabled,
-        message=(
-            "Account created and verification code sent. "
-            "Enter the OTP to activate."
-        ),
+        message=f"{channel_note} Enter the OTP to activate.",
     )
 
 
