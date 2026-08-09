@@ -6,6 +6,8 @@
 set -euo pipefail
 
 ROOT="${1:-$(cd "$(dirname "$0")/.." && pwd)}"
+ROOT="$(readlink -f "$ROOT")"
+
 if [[ ! -x "$ROOT/.venv/bin/python" ]]; then
   echo "error: $ROOT/.venv/bin/python not found (create venv first)" >&2
   exit 1
@@ -17,29 +19,29 @@ fi
 
 echo "Installing timers with NOMAD_HOME=$ROOT"
 
-install -d /etc/systemd/system/nomad-flush-weather.service.d
-install -d /etc/systemd/system/nomad-sync-map-plotter.service.d
+render_service() {
+  local src="$1"
+  local dest="$2"
+  # systemd requires absolute paths; rewrite /opt/nomad placeholders.
+  sed "s|/opt/nomad|${ROOT}|g" "$src" > "$dest"
+}
 
-cp "$ROOT/scripts/nomad-flush-weather.service" /etc/systemd/system/
-cp "$ROOT/scripts/nomad-flush-weather.timer" /etc/systemd/system/
-cp "$ROOT/scripts/nomad-sync-map-plotter.service" /etc/systemd/system/
-cp "$ROOT/scripts/nomad-sync-map-plotter.timer" /etc/systemd/system/
+render_service "$ROOT/scripts/nomad-flush-weather.service" /etc/systemd/system/nomad-flush-weather.service
+cp "$ROOT/scripts/nomad-flush-weather.timer" /etc/systemd/system/nomad-flush-weather.timer
+render_service "$ROOT/scripts/nomad-sync-map-plotter.service" /etc/systemd/system/nomad-sync-map-plotter.service
+cp "$ROOT/scripts/nomad-sync-map-plotter.timer" /etc/systemd/system/nomad-sync-map-plotter.timer
 
-cat > /etc/systemd/system/nomad-flush-weather.service.d/override.conf <<OVERRIDE
-[Service]
-Environment=NOMAD_HOME=$ROOT
-OVERRIDE
-
-cat > /etc/systemd/system/nomad-sync-map-plotter.service.d/override.conf <<OVERRIDE
-[Service]
-Environment=NOMAD_HOME=$ROOT
-OVERRIDE
+# Remove broken drop-ins from the previous install attempt (if any).
+rm -rf /etc/systemd/system/nomad-flush-weather.service.d
+rm -rf /etc/systemd/system/nomad-sync-map-plotter.service.d
 
 systemctl daemon-reload
-systemctl enable --now nomad-flush-weather.timer
-systemctl enable --now nomad-sync-map-plotter.timer
+systemctl enable nomad-flush-weather.timer
+systemctl enable nomad-sync-map-plotter.timer
+systemctl restart nomad-flush-weather.timer
+systemctl restart nomad-sync-map-plotter.timer
 
-# Validate service units can start (oneshot).
+# Validate oneshot services now that paths are absolute.
 systemctl start nomad-flush-weather.service
 systemctl start nomad-sync-map-plotter.service
 

@@ -4,9 +4,8 @@ After=network.target postgresql.service
 
 [Service]
 Type=oneshot
-# Override NOMAD_HOME via: /etc/systemd/system/nomad-flush-weather.service.d/override.conf
-Environment=NOMAD_HOME=/opt/nomad
-WorkingDirectory=${NOMAD_HOME}
-EnvironmentFile=-${NOMAD_HOME}/.env
-ExecStart=${NOMAD_HOME}/.venv/bin/python ${NOMAD_HOME}/scripts/flush_weather_cache.py
+# Paths are rewritten by scripts/install-systemd-timers.sh
+WorkingDirectory=/opt/nomad
+EnvironmentFile=-/opt/nomad/.env
+ExecStart=/opt/nomad/.venv/bin/python /opt/nomad/scripts/flush_weather_cache.py
 Nice=10
