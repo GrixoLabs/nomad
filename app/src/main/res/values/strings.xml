@@ -44,9 +44,12 @@
     <string name="logout">Log out</string>
     <string name="tracking_channel_name">Nomad Tracking</string>
     <string name="tracking_channel_desc">Quiet status while Nomad tracks in the background</string>
-    <string name="tracking_notification_title">Nomad is doing its work.Travel worry free!</string>
-    <string name="tracking_notification_hide">Hide notification</string>
-    <string name="tracking_notification_show">Show notification</string>
-    <string name="hide_tracking_notification">Hide tracking notification</string>
-    <string name="tracking_notification_required">A quiet notification stays on while tracking so location keeps uploading.</string>
+    <string name="tracking_notification_title">Nomad is doing its work. Travel worry free!</string>
+    <string name="tracking_notification_body">Location tracking is active</string>
+    <string name="tracking_notification_silent_title">Nomad tracking</string>
+    <string name="tracking_notification_silent_body">Tracking quietly in the background</string>
+    <string name="tracking_notification_hide">Track quietly</string>
+    <string name="tracking_notification_show">Show status</string>
+    <string name="hide_tracking_notification">Track quietly (minimal status)</string>
+    <string name="tracking_notification_required">Android needs a quiet status while tracking. Use Track quietly to keep it minimal — uploads stay on.</string>
 </resources>

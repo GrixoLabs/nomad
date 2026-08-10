@@ -12,8 +12,11 @@ import dev.grixo.nomad.MainActivity
 import dev.grixo.nomad.R
 
 object NotificationHelper {
-    /** New channel id so IMPORTANCE_MIN applies (channel importance is immutable). */
-    const val CHANNEL_ID = "nomad_tracking_quiet_v2"
+    /**
+     * Channel id bumped so IMPORTANCE_LOW applies (channel importance is immutable).
+     * LOW = shade entry, no heads-up — required for quiet location FGS.
+     */
+    const val CHANNEL_ID = "nomad_tracking_quiet_v3"
     const val NOTIFICATION_ID = 1
 
     fun createNotificationChannel(context: Context) {
@@ -21,19 +24,24 @@ object NotificationHelper {
             val channel = NotificationChannel(
                 CHANNEL_ID,
                 context.getString(R.string.tracking_channel_name),
-                NotificationManager.IMPORTANCE_MIN
+                NotificationManager.IMPORTANCE_LOW
             ).apply {
                 description = context.getString(R.string.tracking_channel_desc)
                 setShowBadge(false)
                 enableVibration(false)
                 setSound(null, null)
+                lockscreenVisibility = Notification.VISIBILITY_SECRET
             }
             val manager = context.getSystemService(NotificationManager::class.java)
             manager.createNotificationChannel(channel)
         }
     }
 
-    fun getNotification(context: Context): Notification {
+    /**
+     * @param prominent when false, use a minimal “tracking quietly” notification.
+     * Always keeps the location FGS promoted — never use stopForeground to “hide”.
+     */
+    fun getNotification(context: Context, prominent: Boolean = true): Notification {
         val openApp = PendingIntent.getActivity(
             context,
             0,
@@ -41,17 +49,29 @@ object NotificationHelper {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
+        val title = if (prominent) {
+            context.getString(R.string.tracking_notification_title)
+        } else {
+            context.getString(R.string.tracking_notification_silent_title)
+        }
+        val text = if (prominent) {
+            context.getString(R.string.tracking_notification_body)
+        } else {
+            context.getString(R.string.tracking_notification_silent_body)
+        }
+
         return NotificationCompat.Builder(context, CHANNEL_ID)
-            .setContentTitle(context.getString(R.string.tracking_notification_title))
+            .setContentTitle(title)
+            .setContentText(text)
             .setSmallIcon(R.drawable.ic_launcher_foreground)
             .setContentIntent(openApp)
-            // Ongoing keeps the location FGS notification from being dismissed.
             .setOngoing(true)
             .setSilent(true)
             .setOnlyAlertOnce(true)
-            .setPriority(NotificationCompat.PRIORITY_MIN)
+            .setPriority(NotificationCompat.PRIORITY_LOW)
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
-            .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
+            // Deferred avoids a heads-up “pop” each time we refresh the FGS entry.
+            .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_DEFERRED)
             .build()
     }
 }

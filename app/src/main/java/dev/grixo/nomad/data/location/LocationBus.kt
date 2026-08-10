@@ -14,7 +14,9 @@ data class LiveLocationEvent(
     val altitudeM: Double?,
     val batteryPercent: Int?,
     val networkType: String,
-    val uploaded: Boolean
+    val uploaded: Boolean,
+    /** Degrees clockwise from north when known. */
+    val bearingDeg: Float? = null
 )
 
 @Singleton
@@ -42,6 +44,7 @@ class LocationBus @Inject constructor() {
         altitudeM = if (location.hasAltitude()) location.altitude else null,
         batteryPercent = batteryPercent,
         networkType = networkType,
-        uploaded = uploaded
+        uploaded = uploaded,
+        bearingDeg = if (location.hasBearing()) location.bearing else null
     )
 }

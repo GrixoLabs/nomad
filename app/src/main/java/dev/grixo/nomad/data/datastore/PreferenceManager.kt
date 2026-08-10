@@ -46,9 +46,8 @@ class PreferenceManager @Inject constructor(
     }
 
     /**
-     * Preference kept for UI compatibility. Android requires an ongoing foreground
-     * notification while location tracking runs — hiding it demotes the service and
-     * stops reliable GPS uploads, so the service always keeps the FGS notification.
+     * When false, TrackingService uses a minimal quiet FGS status (still required by
+     * Android for background location). Never maps to stopForeground.
      */
     val trackingNotificationVisible: Flow<Boolean> = context.dataStore.data.map {
         it[trackingNotificationVisibleKey] != false

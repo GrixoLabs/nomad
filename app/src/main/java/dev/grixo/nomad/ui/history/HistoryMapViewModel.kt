@@ -3,6 +3,7 @@ package dev.grixo.nomad.ui.history
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dev.grixo.nomad.data.location.LocationBus
 import dev.grixo.nomad.data.network.model.HistoryResponse
 import dev.grixo.nomad.data.network.model.JournalEntryResponse
 import dev.grixo.nomad.data.network.model.PlotPointResponse
@@ -16,6 +17,12 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+
+data class HistoryLiveLocation(
+    val latitude: Double,
+    val longitude: Double,
+    val bearingDeg: Float?
+)
 
 data class HistoryMapUiState(
     val days: Int = 7,
@@ -31,12 +38,14 @@ data class HistoryMapUiState(
     val journalIndex: Int = 0,
     val detailTitle: String? = null,
     val detailBody: String? = null,
-    val journalCarousel: List<JournalEntryResponse> = emptyList()
+    val journalCarousel: List<JournalEntryResponse> = emptyList(),
+    val liveLocation: HistoryLiveLocation? = null
 )
 
 @HiltViewModel
 class HistoryMapViewModel @Inject constructor(
-    private val journalRepository: JournalRepository
+    private val journalRepository: JournalRepository,
+    private val locationBus: LocationBus
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(HistoryMapUiState())
@@ -44,6 +53,43 @@ class HistoryMapViewModel @Inject constructor(
 
     init {
         reload()
+        viewModelScope.launch {
+            var prev: HistoryLiveLocation? = null
+            locationBus.events.collect { event ->
+                val bearing = event.bearingDeg ?: prev?.let { last ->
+                    bearingBetween(
+                        last.latitude,
+                        last.longitude,
+                        event.latitude,
+                        event.longitude
+                    )
+                }
+                val next = HistoryLiveLocation(
+                    latitude = event.latitude,
+                    longitude = event.longitude,
+                    bearingDeg = bearing
+                )
+                prev = next
+                _uiState.update { it.copy(liveLocation = next) }
+            }
+        }
+    }
+
+    private fun bearingBetween(
+        lat1: Double,
+        lon1: Double,
+        lat2: Double,
+        lon2: Double
+    ): Float? {
+        if (lat1 == lat2 && lon1 == lon2) return null
+        val φ1 = Math.toRadians(lat1)
+        val φ2 = Math.toRadians(lat2)
+        val Δλ = Math.toRadians(lon2 - lon1)
+        val y = Math.sin(Δλ) * Math.cos(φ2)
+        val x = Math.cos(φ1) * Math.sin(φ2) -
+            Math.sin(φ1) * Math.cos(φ2) * Math.cos(Δλ)
+        val deg = Math.toDegrees(Math.atan2(y, x))
+        return ((deg + 360.0) % 360.0).toFloat()
     }
 
     fun setDays(days: Int) {

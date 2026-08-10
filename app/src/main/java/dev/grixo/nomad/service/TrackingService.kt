@@ -44,11 +44,19 @@ class TrackingService : Service() {
     private lateinit var fusedLocationClient: FusedLocationProviderClient
     private lateinit var locationCallback: LocationCallback
     private var updatesRequested = false
+    private var foregroundReady = false
+    @Volatile
+    private var notificationProminent = true
 
     override fun onCreate() {
         super.onCreate()
         Timber.d("TrackingService created")
         NotificationHelper.createNotificationChannel(this)
+        serviceScope.launch {
+            preferenceManager.trackingNotificationVisible.collect { visible ->
+                notificationProminent = visible
+            }
+        }
         // Location FGS must stay promoted for reliable background GPS uploads.
         promoteToForeground()
 
@@ -66,14 +74,17 @@ class TrackingService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_HIDE_NOTIFICATION -> {
-                // Cannot remove the FGS notification without demoting the service and
-                // breaking background location uploads on modern Android. Keep FGS.
-                Timber.i("Hide notification requested — keeping FGS so uploads continue")
-                serviceScope.launch { preferenceManager.setTrackingNotificationVisible(true) }
+                // Quiet mode: keep FGS (uploads continue) but switch to minimal status.
+                // Never stopForeground — that demotes location FGS on modern Android.
+                Timber.i("Quiet tracking — minimal FGS notification")
+                notificationProminent = false
+                serviceScope.launch { preferenceManager.setTrackingNotificationVisible(false) }
                 promoteToForeground()
                 return START_STICKY
             }
             ACTION_SHOW_NOTIFICATION -> {
+                Timber.i("Show tracking status notification")
+                notificationProminent = true
                 serviceScope.launch { preferenceManager.setTrackingNotificationVisible(true) }
                 promoteToForeground()
                 return START_STICKY
@@ -81,7 +92,6 @@ class TrackingService : Service() {
             ACTION_STOP_TRACKING -> {
                 serviceScope.launch {
                     preferenceManager.setTrackingEnabled(false)
-                    // Best-effort drain of any offline signals before teardown.
                     signalRepository.syncSignals()
                 }
                 SyncScheduler.cancelPeriodic(WorkManager.getInstance(this))
@@ -89,32 +99,38 @@ class TrackingService : Service() {
                 return START_NOT_STICKY
             }
             ACTION_REFRESH_NOW -> {
-                // Sync / pull-to-refresh: force a fresh fix, upload it, drain offline queue.
+                // Refresh location/upload only — do not re-alert the notification.
                 Timber.i("Refresh now — fetching location and syncing offline queue")
-                ensureTrackingAndRefresh()
+                serviceScope.launch { preferenceManager.setTrackingEnabled(true) }
+                ensureForegroundQuietly()
+                SyncScheduler.enqueuePeriodic(WorkManager.getInstance(this))
+                SyncScheduler.enqueueOnce(WorkManager.getInstance(this))
+                requestLocationUpdates()
+                fetchImmediateLocation()
                 return START_STICKY
             }
         }
 
         Timber.d("TrackingService started")
-        ensureTrackingAndRefresh()
-        return START_STICKY
-    }
-
-    private fun ensureTrackingAndRefresh() {
-        serviceScope.launch {
-            preferenceManager.setTrackingEnabled(true)
-            preferenceManager.setTrackingNotificationVisible(true)
-        }
-        promoteToForeground()
+        serviceScope.launch { preferenceManager.setTrackingEnabled(true) }
+        ensureForegroundQuietly()
         SyncScheduler.enqueuePeriodic(WorkManager.getInstance(this))
         SyncScheduler.enqueueOnce(WorkManager.getInstance(this))
         requestLocationUpdates()
         fetchImmediateLocation()
+        return START_STICKY
+    }
+
+    private fun ensureForegroundQuietly() {
+        if (foregroundReady) return
+        promoteToForeground()
     }
 
     private fun promoteToForeground() {
-        val notification = NotificationHelper.getNotification(this)
+        val notification = NotificationHelper.getNotification(
+            this,
+            prominent = notificationProminent
+        )
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             startForeground(
                 NotificationHelper.NOTIFICATION_ID,
@@ -124,6 +140,7 @@ class TrackingService : Service() {
         } else {
             startForeground(NotificationHelper.NOTIFICATION_ID, notification)
         }
+        foregroundReady = true
     }
 
     private fun fetchImmediateLocation() {
@@ -196,7 +213,6 @@ class TrackingService : Service() {
         if (::fusedLocationClient.isInitialized && ::locationCallback.isInitialized) {
             fusedLocationClient.removeLocationUpdates(locationCallback)
         }
-        // Queue a one-shot sync so pending offline rows are not stranded after stop.
         SyncScheduler.enqueueOnce(this)
         serviceJob.cancel()
         super.onDestroy()
