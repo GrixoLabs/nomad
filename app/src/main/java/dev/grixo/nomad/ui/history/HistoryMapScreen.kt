@@ -651,7 +651,7 @@ private fun nightPlotCollection(history: HistoryResponse): FeatureCollection {
 
 /**
  * Sparse movement arrows along the chronological trail.
- * Spacing ~600m, hard cap so the map stays minimal.
+ * Spacing ~5 km, hard cap so the map stays minimal.
  */
 private fun directionArrowCollection(history: HistoryResponse): FeatureCollection {
     val pathPoints = history.segments.flatMap { it.points }
@@ -671,7 +671,7 @@ private fun sparseArrowsFromLatLng(points: List<Pair<Double, Double>>): FeatureC
     var lastLat = points.first().first
     var lastLon = points.first().second
     var traveledSinceArrow = 0.0
-    val minSpacingM = 600.0
+    val minSpacingM = 5_000.0
     val maxArrows = 14
 
     for (i in 1 until points.size) {
