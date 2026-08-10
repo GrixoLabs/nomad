@@ -24,7 +24,7 @@ from app.schemas.history import (
     TrackSegment,
 )
 from app.security.journal_crypto import decrypt_journal, encrypt_journal
-from app.services.map_plotter_service import MIN_PLOT_SECONDS, MapPlotterService, round_cell
+from app.services.map_plotter_service import MapPlotterService, round_cell
 from app.services.place_service import PlaceService
 from app.utils.geo import grid_key
 
@@ -259,12 +259,11 @@ class HistoryService:
             except Exception:  # noqa: BLE001
                 db.rollback()
 
-        # Plot points = cells with meaningful dwell (> 30 minutes).
+        # Include every map_plotter cell so the trail shows all visited spots.
+        # (Previously cells under 30 minutes were dropped and missing from the map.)
         plot_points: list[PlotPointResponse] = []
         night_stays: list[NightStayResponse] = []
         for plot in plots:
-            if plot.total_time_at_location_seconds < MIN_PLOT_SECONDS:
-                continue
             key = (round_cell(plot.latitude), round_cell(plot.longitude))
             cell_journals = journals_by_cell.get(key, [])
             plot_label = self._place_name(
