@@ -34,6 +34,7 @@ import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
@@ -554,12 +555,29 @@ fun MainScreen(
             }
 
             if (state.isTracking) {
-                Text(
-                    text = stringResource(R.string.tracking_notification_required),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = colors.onSurfaceVariant,
-                    modifier = Modifier.align(Alignment.CenterHorizontally)
-                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
+                        Text(
+                            text = stringResource(R.string.hide_tracking_notification),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = colors.onSurface,
+                            fontWeight = FontWeight.Medium
+                        )
+                        Text(
+                            text = stringResource(R.string.tracking_notification_required),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = colors.onSurfaceVariant
+                        )
+                    }
+                    Switch(
+                        checked = !state.notificationVisible,
+                        onCheckedChange = { quiet -> onToggleNotification(!quiet) }
+                    )
+                }
             }
 
             OutlinedButton(

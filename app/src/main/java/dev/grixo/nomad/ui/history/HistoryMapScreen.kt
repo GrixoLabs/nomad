@@ -1,10 +1,12 @@
 package dev.grixo.nomad.ui.history
 
+import android.animation.ValueAnimator
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Path
+import android.view.animation.AccelerateDecelerateInterpolator
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -237,6 +239,7 @@ fun HistoryMapScreen(
                             tileUrlTemplate = state.tileUrlTemplate,
                             attribution = state.attribution,
                             history = state.history ?: HistoryResponse(days = state.days),
+                            liveLocation = state.liveLocation,
                             onPlotClick = onSelectPlot,
                             onJournalClick = onSelectJournal
                         )
@@ -303,6 +306,7 @@ private fun MapLibreHistoryMap(
     tileUrlTemplate: String?,
     attribution: String,
     history: HistoryResponse,
+    liveLocation: HistoryLiveLocation?,
     onPlotClick: (Long) -> Unit,
     onJournalClick: (Long) -> Unit
 ) {
@@ -310,14 +314,29 @@ private fun MapLibreHistoryMap(
     val lifecycleOwner = LocalLifecycleOwner.current
     val mapView = remember { MapView(context) }
     var mapReady by remember { mutableStateOf(false) }
+    var fittedOnce by remember { mutableStateOf(false) }
+    val blinkAnimator = remember {
+        ValueAnimator.ofFloat(0.35f, 1f).apply {
+            duration = 900L
+            repeatMode = ValueAnimator.REVERSE
+            repeatCount = ValueAnimator.INFINITE
+            interpolator = AccelerateDecelerateInterpolator()
+        }
+    }
 
     DisposableEffect(lifecycleOwner, mapView) {
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
                 Lifecycle.Event.ON_CREATE -> mapView.onCreate(null)
                 Lifecycle.Event.ON_START -> mapView.onStart()
-                Lifecycle.Event.ON_RESUME -> mapView.onResume()
-                Lifecycle.Event.ON_PAUSE -> mapView.onPause()
+                Lifecycle.Event.ON_RESUME -> {
+                    mapView.onResume()
+                    blinkAnimator.start()
+                }
+                Lifecycle.Event.ON_PAUSE -> {
+                    blinkAnimator.cancel()
+                    mapView.onPause()
+                }
                 Lifecycle.Event.ON_STOP -> mapView.onStop()
                 Lifecycle.Event.ON_DESTROY -> mapView.onDestroy()
                 else -> Unit
@@ -327,12 +346,32 @@ private fun MapLibreHistoryMap(
         mapView.onCreate(null)
         mapView.onStart()
         mapView.onResume()
+        blinkAnimator.start()
         onDispose {
+            blinkAnimator.cancel()
             lifecycleOwner.lifecycle.removeObserver(observer)
             mapView.onPause()
             mapView.onStop()
             mapView.onDestroy()
         }
+    }
+
+    DisposableEffect(blinkAnimator, mapView) {
+        val listener = ValueAnimator.AnimatorUpdateListener { anim ->
+            val opacity = anim.animatedValue as Float
+            mapView.getMapAsync { map ->
+                map.getStyle { style ->
+                    (style.getLayer(LAYER_LIVE_DOT) as? CircleLayer)?.setProperties(
+                        PropertyFactory.circleOpacity(opacity)
+                    )
+                    (style.getLayer(LAYER_LIVE_HALO) as? CircleLayer)?.setProperties(
+                        PropertyFactory.circleOpacity(opacity * 0.35f)
+                    )
+                }
+            }
+        }
+        blinkAnimator.addUpdateListener(listener)
+        onDispose { blinkAnimator.removeUpdateListener(listener) }
     }
 
     AndroidView(
@@ -350,8 +389,11 @@ private fun MapLibreHistoryMap(
                         else -> return@getMapAsync
                     }
                     map.setStyle(styleBuilder) { style ->
-                        addHistoryLayers(style, history)
-                        fitToHistory(map, history)
+                        addHistoryLayers(style, history, liveLocation)
+                        if (!fittedOnce) {
+                            fitToHistory(map, history, liveLocation)
+                            fittedOnce = true
+                        }
                         map.addOnMapClickListener { point ->
                             handleMapClick(map, point, onPlotClick, onJournalClick)
                         }
@@ -360,8 +402,7 @@ private fun MapLibreHistoryMap(
             } else {
                 view.getMapAsync { map ->
                     map.getStyle { style ->
-                        updateHistoryLayers(style, history)
-                        fitToHistory(map, history)
+                        updateHistoryLayers(style, history, liveLocation)
                     }
                 }
             }
@@ -391,14 +432,21 @@ private fun rasterStyleJson(tileUrl: String, attribution: String): String {
     """.trimIndent()
 }
 
-private fun addHistoryLayers(style: Style, history: HistoryResponse) {
+private fun addHistoryLayers(
+    style: Style,
+    history: HistoryResponse,
+    liveLocation: HistoryLiveLocation?
+) {
+    // Brand: MidnightBlue path, SkyBlue mini dots, NomadDanger live, amber nights.
     if (style.getSource(SOURCE_TRACKS) == null) {
         style.addSource(GeoJsonSource(SOURCE_TRACKS, trackCollection(history)))
         style.addLayer(
             LineLayer(LAYER_PATH, SOURCE_TRACKS).withProperties(
-                PropertyFactory.lineColor(Color.parseColor("#0B1F4A")),
-                PropertyFactory.lineWidth(3.5f),
-                PropertyFactory.lineOpacity(0.95f)
+                PropertyFactory.lineColor(Color.parseColor(COLOR_PATH)),
+                PropertyFactory.lineWidth(3.25f),
+                PropertyFactory.lineOpacity(0.95f),
+                PropertyFactory.lineCap("round"),
+                PropertyFactory.lineJoin("round")
             )
         )
     }
@@ -406,24 +454,18 @@ private fun addHistoryLayers(style: Style, history: HistoryResponse) {
     if (style.getSource(SOURCE_PLOTS) == null) {
         style.addSource(GeoJsonSource(SOURCE_PLOTS, plotCollection(history)))
 
-        // Day/travel plot points: blue concentric ring + dot (non-night).
-        style.addLayer(
-            CircleLayer(LAYER_PLOT_RING, SOURCE_PLOTS).withProperties(
-                PropertyFactory.circleRadius(13f),
-                PropertyFactory.circleColor(Color.TRANSPARENT),
-                PropertyFactory.circleStrokeWidth(2.5f),
-                PropertyFactory.circleStrokeColor(Color.parseColor("#2563EB"))
-            ).withFilter(Expression.eq(Expression.get("night_stayed"), Expression.literal(0)))
-        )
+        // All non-night map_plotter spots as mini sky-blue dots.
         style.addLayer(
             CircleLayer(LAYER_PLOTS, SOURCE_PLOTS).withProperties(
-                PropertyFactory.circleRadius(4.5f),
-                PropertyFactory.circleColor(Color.parseColor("#1D4ED8")),
-                PropertyFactory.circleStrokeWidth(0f)
+                PropertyFactory.circleRadius(3.2f),
+                PropertyFactory.circleColor(Color.parseColor(COLOR_DOT)),
+                PropertyFactory.circleStrokeWidth(1.1f),
+                PropertyFactory.circleStrokeColor(Color.parseColor(COLOR_PATH)),
+                PropertyFactory.circleOpacity(0.95f)
             ).withFilter(Expression.eq(Expression.get("night_stayed"), Expression.literal(0)))
         )
 
-        // Night stays: amber/gold concentric circles (outer + mid + center).
+        // Overnight stays: concentric amber circles (unchanged look).
         style.addLayer(
             CircleLayer(LAYER_NIGHT_OUTER, SOURCE_PLOTS).withProperties(
                 PropertyFactory.circleRadius(20f),
@@ -466,13 +508,97 @@ private fun addHistoryLayers(style: Style, history: HistoryResponse) {
     } else {
         (style.getSource(SOURCE_JOURNALS) as? GeoJsonSource)?.setGeoJson(journalCollection(history))
     }
+
+    ensureDirectionArrowImage(style)
+    ensureLiveLayers(style, liveLocation)
 }
 
-private fun updateHistoryLayers(style: Style, history: HistoryResponse) {
+private fun updateHistoryLayers(
+    style: Style,
+    history: HistoryResponse,
+    liveLocation: HistoryLiveLocation?
+) {
     (style.getSource(SOURCE_TRACKS) as? GeoJsonSource)?.setGeoJson(trackCollection(history))
     (style.getSource(SOURCE_PLOTS) as? GeoJsonSource)?.setGeoJson(plotCollection(history))
     ensureJournalPinImage(style)
     (style.getSource(SOURCE_JOURNALS) as? GeoJsonSource)?.setGeoJson(journalCollection(history))
+    ensureDirectionArrowImage(style)
+    ensureLiveLayers(style, liveLocation)
+}
+
+private fun ensureLiveLayers(style: Style, liveLocation: HistoryLiveLocation?) {
+    val collection = liveCollection(liveLocation)
+    if (style.getSource(SOURCE_LIVE) == null) {
+        style.addSource(GeoJsonSource(SOURCE_LIVE, collection))
+        style.addLayer(
+            CircleLayer(LAYER_LIVE_HALO, SOURCE_LIVE).withProperties(
+                PropertyFactory.circleRadius(14f),
+                PropertyFactory.circleColor(Color.parseColor(COLOR_LIVE)),
+                PropertyFactory.circleOpacity(0.28f)
+            )
+        )
+        style.addLayer(
+            CircleLayer(LAYER_LIVE_DOT, SOURCE_LIVE).withProperties(
+                PropertyFactory.circleRadius(6.5f),
+                PropertyFactory.circleColor(Color.parseColor(COLOR_LIVE)),
+                PropertyFactory.circleStrokeWidth(2f),
+                PropertyFactory.circleStrokeColor(Color.WHITE),
+                PropertyFactory.circleOpacity(1f)
+            )
+        )
+        style.addLayer(
+            SymbolLayer(LAYER_LIVE_ARROW, SOURCE_LIVE).withProperties(
+                PropertyFactory.iconImage(DIRECTION_ARROW_IMAGE),
+                PropertyFactory.iconSize(0.85f),
+                PropertyFactory.iconAllowOverlap(true),
+                PropertyFactory.iconIgnorePlacement(true),
+                PropertyFactory.iconRotate(Expression.get("bearing")),
+                PropertyFactory.iconRotationAlignment("map"),
+                PropertyFactory.iconAnchor("center"),
+                PropertyFactory.iconOffset(arrayOf(0f, -14f))
+            ).withFilter(Expression.eq(Expression.get("has_bearing"), Expression.literal(1)))
+        )
+    } else {
+        (style.getSource(SOURCE_LIVE) as? GeoJsonSource)?.setGeoJson(collection)
+    }
+}
+
+private fun liveCollection(live: HistoryLiveLocation?): FeatureCollection {
+    if (live == null) return FeatureCollection.fromFeatures(emptyArray())
+    val feature = Feature.fromGeometry(Point.fromLngLat(live.longitude, live.latitude)).also {
+        val bearing = live.bearingDeg
+        it.addNumberProperty("bearing", bearing ?: 0f)
+        it.addNumberProperty("has_bearing", if (bearing != null) 1 else 0)
+    }
+    return FeatureCollection.fromFeatures(arrayOf(feature))
+}
+
+private fun ensureDirectionArrowImage(style: Style) {
+    if (style.getImage(DIRECTION_ARROW_IMAGE) != null) return
+    style.addImage(DIRECTION_ARROW_IMAGE, createDirectionArrowBitmap())
+}
+
+private fun createDirectionArrowBitmap(): Bitmap {
+    val size = 64
+    val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+    val canvas = Canvas(bitmap)
+    val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+    // Deep navy arrow with white stroke — points “up” (north); MapLibre rotates by bearing.
+    paint.style = Paint.Style.FILL
+    paint.color = Color.parseColor(COLOR_PATH)
+    val path = Path().apply {
+        moveTo(size * 0.5f, size * 0.12f)
+        lineTo(size * 0.78f, size * 0.72f)
+        lineTo(size * 0.5f, size * 0.58f)
+        lineTo(size * 0.22f, size * 0.72f)
+        close()
+    }
+    canvas.drawPath(path, paint)
+    paint.style = Paint.Style.STROKE
+    paint.strokeWidth = 3f
+    paint.color = Color.WHITE
+    canvas.drawPath(path, paint)
+    return bitmap
 }
 
 private fun trackCollection(history: HistoryResponse): FeatureCollection {
@@ -541,10 +667,15 @@ private fun createRedPinBitmap(): Bitmap {
     return bitmap
 }
 
-private fun fitToHistory(map: org.maplibre.android.maps.MapLibreMap, history: HistoryResponse) {
+private fun fitToHistory(
+    map: org.maplibre.android.maps.MapLibreMap,
+    history: HistoryResponse,
+    liveLocation: HistoryLiveLocation?
+) {
     val points = buildList {
         addAll(history.plot_points.map { LatLng(it.latitude, it.longitude) })
         addAll(history.journal_pins.map { LatLng(it.latitude, it.longitude) })
+        liveLocation?.let { add(LatLng(it.latitude, it.longitude)) }
     }
     if (points.isEmpty()) {
         map.animateCamera(CameraUpdateFactory.newLatLngZoom(LatLng(22.82, 86.22), 11.0))
@@ -576,7 +707,6 @@ private fun handleMapClick(
         LAYER_NIGHTS,
         LAYER_NIGHT_RING,
         LAYER_NIGHT_OUTER,
-        LAYER_PLOT_RING,
         LAYER_PLOTS
     )
     plotHits.firstOrNull()?.getNumberProperty("plot_id")?.toLong()?.let {
@@ -628,11 +758,19 @@ private fun HistoryDatePickerDialog(
 private const val SOURCE_TRACKS = "nomad-tracks"
 private const val SOURCE_PLOTS = "nomad-plots"
 private const val SOURCE_JOURNALS = "nomad-journals"
+private const val SOURCE_LIVE = "nomad-live"
 private const val LAYER_PATH = "nomad-path"
-private const val LAYER_PLOT_RING = "nomad-plots-ring"
 private const val LAYER_PLOTS = "nomad-plots-dot"
 private const val LAYER_JOURNALS = "nomad-journals-layer"
 private const val LAYER_NIGHTS = "nomad-nights-dot"
 private const val LAYER_NIGHT_RING = "nomad-nights-ring"
 private const val LAYER_NIGHT_OUTER = "nomad-nights-outer"
+private const val LAYER_LIVE_HALO = "nomad-live-halo"
+private const val LAYER_LIVE_DOT = "nomad-live-dot"
+private const val LAYER_LIVE_ARROW = "nomad-live-arrow"
 private const val JOURNAL_PIN_IMAGE = "nomad-journal-pin"
+private const val DIRECTION_ARROW_IMAGE = "nomad-direction-arrow"
+// Brand-aligned map colors (Color.kt)
+private const val COLOR_PATH = "#1E3A8A" // MidnightBlue
+private const val COLOR_DOT = "#0EA5E9" // SkyBlue
+private const val COLOR_LIVE = "#DC2626" // NomadDanger

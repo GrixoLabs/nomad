@@ -164,10 +164,11 @@ class MainViewModel @Inject constructor(
     }
 
     fun setNotificationVisible(visible: Boolean) {
-        // Location FGS notification cannot be removed while tracking — keep it visible.
+        // Quiet mode keeps the location FGS promoted with a minimal status entry.
+        // Fully removing the notification would demote FGS and stop uploads.
         viewModelScope.launch {
-            preferenceManager.setTrackingNotificationVisible(true)
-            _uiState.update { it.copy(notificationVisible = true) }
+            preferenceManager.setTrackingNotificationVisible(visible)
+            _uiState.update { it.copy(notificationVisible = visible) }
         }
     }
 
