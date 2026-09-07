@@ -343,7 +343,7 @@ class HistoryMapViewModel @Inject constructor(
                     plot.place_label?.let { label -> append(label).append('\n') }
                     append("Dwell ${"%.1f".format(plot.total_time_hours)} h")
                     if (plot.night_stayed) append(" · overnight")
-                    else if (plot.total_time_hours >= 1.0) append(" · 1 km stay")
+                    else if (plot.total_time_hours >= 1.0) append(" · 500 m stay")
                     append(" · visits ${plot.visit_count}")
                     if (journal != null) {
                         append("\n\n")

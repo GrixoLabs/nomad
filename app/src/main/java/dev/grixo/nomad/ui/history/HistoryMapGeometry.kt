@@ -18,7 +18,7 @@ import kotlin.math.sqrt
 /** Geometry helpers for Travel History map styling. */
 internal object HistoryMapGeometry {
 
-    const val STAY_RADIUS_M = 1_000.0
+    const val STAY_RADIUS_M = 500.0
     const val LONG_STAY_HOURS = 1.0
     /** Overnight markers: require meaningful night dwell (tighter than raw flags). */
     const val OVERNIGHT_IDLE_HOURS = 5.0
@@ -94,15 +94,15 @@ internal object HistoryMapGeometry {
     }
 
     /**
-     * Long stays: cluster plots within 1 km; highlight when dwell ≥ 1 hour.
-     * Overnight: tightened night markers (dark-red encircled), clustered to 1 km.
+     * Long stays: cluster plots within 500 m; highlight when dwell ≥ 1 hour.
+     * Overnight: tightened night markers (dark-red encircled), clustered to 500 m.
      */
     fun stayMarkers(history: HistoryResponse): Pair<List<StayMarker>, List<StayMarker>> {
         val overnightSeeds = overnightSeedPlots(history)
         val overnight = clusterStays(overnightSeeds, overnight = true)
         val overnightIds = overnight.map { it.plotId }.toHashSet()
 
-        // Re-cluster all dwell plots within 1 km for ≥1 h stays.
+        // Re-cluster all dwell plots within 500 m for ≥1 h stays.
         val longClusters = clusterByRadius(history.plot_points.filter { it.total_time_hours > 0 })
             .mapNotNull { cluster ->
                 val hours = cluster.sumOf { it.total_time_hours }
@@ -205,7 +205,7 @@ internal object HistoryMapGeometry {
         }
     }
 
-    /** Greedy 1 km clustering — merge if within radius of any member. */
+    /** Greedy 500 m clustering — merge if within radius of any member. */
     private fun clusterByRadius(plots: List<PlotPointResponse>): List<List<PlotPointResponse>> {
         if (plots.isEmpty()) return emptyList()
         val remaining = plots.toMutableList()

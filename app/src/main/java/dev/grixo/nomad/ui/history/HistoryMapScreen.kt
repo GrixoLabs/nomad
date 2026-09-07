@@ -456,7 +456,7 @@ private fun addHistoryLayers(
         )
     }
 
-    // ≥1 h within ~1 km — solid dark-red highlight (non-overnight).
+    // ≥1 h within ~500 m — solid dark-red highlight (non-overnight).
     if (style.getSource(SOURCE_STAYS) == null) {
         style.addSource(
             GeoJsonSource(SOURCE_STAYS, HistoryMapGeometry.longStayCollection(longStays))
