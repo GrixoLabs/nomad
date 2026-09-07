@@ -33,7 +33,7 @@ def main() -> int:
     parser.add_argument(
         "--full",
         action="store_true",
-        help="Force full rebuild for selected device(s)",
+        help="Force full rebuild for selected device(s) (required after cell-size changes)",
     )
     args = parser.parse_args()
 

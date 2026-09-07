@@ -3,9 +3,9 @@
 Pipeline:
 1. Register device in map_plotter_devices (skip insert if already present).
 2. Scan new device_signals (incremental via last_signal_id).
-3. Round lat/lon to 3 decimals → upsert cell; accumulate total_time_at_location.
+3. Snap lat/lon to ~500 m cells → upsert cell; accumulate total_time_at_location.
 4. Accumulate night-window time (22:00–06:00 local); night_stayed if > 6h.
-5. Recount journals at the same 3-decimal cell into journal_count.
+5. Recount journals at the same ~500 m cell into journal_count.
 """
 
 from __future__ import annotations
@@ -26,7 +26,9 @@ from app.database.models.user import User
 
 logger = logging.getLogger(__name__)
 
-COORD_DECIMALS = 3
+# ~500 m cells. 1° latitude ≈ 111.32 km → 500 m ≈ 0.004491°.
+CELL_SIZE_DEGREES = 0.0045
+CELL_COORD_DECIMALS = 6
 MAX_GAP_SECONDS = 2 * 60 * 60  # ignore gaps > 2h when accumulating dwell time
 NIGHT_START = time(22, 0)
 NIGHT_END = time(6, 0)
@@ -35,12 +37,18 @@ MIN_PLOT_SECONDS = 30 * 60  # dwell threshold for history plot points
 
 
 def round_cell(value: float) -> float:
-    return round(float(value), COORD_DECIMALS)
+    """Snap a coordinate onto the ~500 m map_plotter grid."""
+    step = CELL_SIZE_DEGREES
+    snapped = round(float(value) / step) * step
+    return round(snapped, CELL_COORD_DECIMALS)
 
 
 def cell_key(lat: float, lon: float) -> tuple[str, str]:
-    """Stable dict key for 3-decimal cells (avoids float identity mismatches)."""
-    return (f"{round_cell(lat):.{COORD_DECIMALS}f}", f"{round_cell(lon):.{COORD_DECIMALS}f}")
+    """Stable dict key for ~500 m cells (avoids float identity mismatches)."""
+    return (
+        f"{round_cell(lat):.{CELL_COORD_DECIMALS}f}",
+        f"{round_cell(lon):.{CELL_COORD_DECIMALS}f}",
+    )
 
 
 def is_night_local(ts: datetime, tz: ZoneInfo) -> bool:

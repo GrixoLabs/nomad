@@ -4,7 +4,7 @@
 
 CREATE SCHEMA IF NOT EXISTS nomad;
 
--- One row per device + lat/lon rounded to 3 decimals (~110 m).
+-- One row per device + lat/lon snapped to ~500 m cells.
 CREATE TABLE IF NOT EXISTS nomad.map_plotter
 (
     plot_id                       BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
@@ -12,8 +12,8 @@ CREATE TABLE IF NOT EXISTS nomad.map_plotter
         REFERENCES nomad.devices(device_id) ON DELETE CASCADE,
     user_id                       UUID
         REFERENCES nomad.users(user_id) ON DELETE SET NULL,
-    latitude                      DOUBLE PRECISION NOT NULL,  -- 3 decimal places
-    longitude                     DOUBLE PRECISION NOT NULL,  -- 3 decimal places
+    latitude                      DOUBLE PRECISION NOT NULL,  -- ~500 m grid
+    longitude                     DOUBLE PRECISION NOT NULL,  -- ~500 m grid
     first_gps_timestamp           TIMESTAMPTZ NOT NULL,
     last_gps_timestamp            TIMESTAMPTZ NOT NULL,
     total_time_at_location_seconds DOUBLE PRECISION NOT NULL DEFAULT 0,
