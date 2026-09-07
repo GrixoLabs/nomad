@@ -11,7 +11,8 @@ import dev.grixo.nomad.domain.model.OnboardingStatus
 import dev.grixo.nomad.domain.repository.DeviceRepository
 import dev.grixo.nomad.domain.repository.SignalRepository
 import dev.grixo.nomad.domain.repository.UserRepository
-import dev.grixo.nomad.worker.SyncScheduler
+import dev.grixo.nomad.location.GeofenceHelper
+import dev.grixo.nomad.worker.TrackingScheduler
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -38,13 +39,14 @@ class MainViewModel @Inject constructor(
     private val preferenceManager: PreferenceManager,
     private val api: NomadApi,
     private val workManager: WorkManager,
-    private val locationBus: LocationBus
+    private val locationBus: LocationBus,
+    private val geofenceHelper: GeofenceHelper
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(MainUiState())
     val uiState: StateFlow<MainUiState> = _uiState.asStateFlow()
 
-    /** UI starts TrackingService with ACTION_REFRESH_NOW when this emits. */
+    /** UI schedules an immediate location ping when this emits. */
     private val _locationRefreshRequests = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
     val locationRefreshRequests: SharedFlow<Unit> = _locationRefreshRequests.asSharedFlow()
 
@@ -53,32 +55,26 @@ class MainViewModel @Inject constructor(
             deviceRepository.initializeDevice()
             checkBackendHealth()
             val enabled = preferenceManager.trackingEnabled.first()
-            val notifVisible = preferenceManager.trackingNotificationVisible.first()
             val lastUpload = preferenceManager.lastUploadEpochMs.first()
             _uiState.update {
                 it.copy(
                     isTracking = enabled,
-                    notificationVisible = notifVisible,
                     shouldAutoStartTracking = enabled,
                     lastUploadTime = formatUploadTime(lastUpload)
                 )
             }
             if (enabled) {
-                SyncScheduler.enqueuePeriodic(workManager)
-            }
-        }
-        viewModelScope.launch {
-            preferenceManager.trackingNotificationVisible.collect { visible ->
-                _uiState.update { it.copy(notificationVisible = visible) }
+                TrackingScheduler.startTracking(workManager)
             }
         }
         viewModelScope.launch {
             preferenceManager.trackingEnabled.collect { enabled ->
                 _uiState.update { it.copy(isTracking = enabled) }
                 if (enabled) {
-                    SyncScheduler.enqueuePeriodic(workManager)
+                    TrackingScheduler.startTracking(workManager)
                 } else {
-                    SyncScheduler.cancelPeriodic(workManager)
+                    TrackingScheduler.stopTracking(workManager)
+                    geofenceHelper.clear()
                 }
             }
         }
@@ -163,13 +159,8 @@ class MainViewModel @Inject constructor(
         _uiState.update { it.copy(shouldAutoStartTracking = false) }
     }
 
-    fun setNotificationVisible(visible: Boolean) {
-        // Quiet mode keeps the location FGS promoted with a minimal status entry.
-        // Fully removing the notification would demote FGS and stop uploads.
-        viewModelScope.launch {
-            preferenceManager.setTrackingNotificationVisible(visible)
-            _uiState.update { it.copy(notificationVisible = visible) }
-        }
+    fun clearGeofences() {
+        geofenceHelper.clear()
     }
 
     fun setPermissionDenied(denied: Boolean) {
@@ -294,8 +285,7 @@ class MainViewModel @Inject constructor(
 
     /**
      * Sync now and pull-to-refresh share this path:
-     * ask TrackingService for a fresh GPS fix + upload, drain offline queue,
-     * then refresh place/weather from the new coordinates.
+     * schedule an immediate location ping, then refresh place/weather.
      */
     fun triggerManualSync() {
         refreshLocationDetails(showPullSpinner = false)
@@ -316,11 +306,10 @@ class MainViewModel @Inject constructor(
             }
             try {
                 _locationRefreshRequests.emit(Unit)
-                SyncScheduler.enqueueOnce(workManager)
+                TrackingScheduler.enqueueImmediatePing(workManager)
                 checkBackendHealth()
 
-                // Skip replayed last fix; wait for the refresh-triggered upload/publish.
-                val event = withTimeoutOrNull(15_000L) {
+                val event = withTimeoutOrNull(20_000L) {
                     locationBus.events.drop(1).first()
                 }
                 if (event != null) {

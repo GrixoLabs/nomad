@@ -34,23 +34,14 @@ class PreferenceManager @Inject constructor(
     private val accessTokenKey = stringPreferencesKey("access_token")
     private val refreshTokenKey = stringPreferencesKey("refresh_token")
     private val trackingEnabledKey = booleanPreferencesKey("tracking_enabled")
-    private val trackingNotificationVisibleKey =
-        booleanPreferencesKey("tracking_notification_visible")
     private val lastUploadEpochMsKey = longPreferencesKey("last_upload_epoch_ms")
 
     val deviceUuid: Flow<String?> = context.dataStore.data.map { it[deviceUuidKey] }
     val deviceId: Flow<Long?> = context.dataStore.data.map { it[deviceIdKey] }
 
+    /** When true, WorkManager arms ~15-minute location pings (no continuous GPS). */
     val trackingEnabled: Flow<Boolean> = context.dataStore.data.map {
         it[trackingEnabledKey] == true
-    }
-
-    /**
-     * When false, TrackingService uses a minimal quiet FGS status (still required by
-     * Android for background location). Never maps to stopForeground.
-     */
-    val trackingNotificationVisible: Flow<Boolean> = context.dataStore.data.map {
-        it[trackingNotificationVisibleKey] != false
     }
 
     val lastUploadEpochMs: Flow<Long?> = context.dataStore.data.map {
@@ -113,10 +104,6 @@ class PreferenceManager @Inject constructor(
 
     suspend fun setTrackingEnabled(enabled: Boolean) {
         context.dataStore.edit { it[trackingEnabledKey] = enabled }
-    }
-
-    suspend fun setTrackingNotificationVisible(visible: Boolean) {
-        context.dataStore.edit { it[trackingNotificationVisibleKey] = visible }
     }
 
     suspend fun setLastUploadEpochMs(epochMs: Long) {

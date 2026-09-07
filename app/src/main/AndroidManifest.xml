@@ -34,12 +34,6 @@
             </intent-filter>
         </activity>
 
-        <service
-            android:name=".service.TrackingService"
-            android:exported="false"
-            android:foregroundServiceType="location"
-            android:stopWithTask="false" />
-
         <receiver
             android:name=".receiver.BootReceiver"
             android:exported="true">
@@ -50,12 +44,14 @@
         </receiver>
 
         <receiver
-            android:name=".receiver.NotificationDeleteReceiver"
-            android:exported="false">
-            <intent-filter>
-                <action android:name="dev.grixo.nomad.action.NOTIFICATION_DELETED" />
-            </intent-filter>
-        </receiver>
+            android:name=".receiver.GeofenceReceiver"
+            android:exported="false" />
+
+        <!-- WorkManager short-lived FGS used only during each location ping -->
+        <service
+            android:name="androidx.work.impl.foreground.SystemForegroundService"
+            android:foregroundServiceType="location"
+            tools:node="merge" />
 
         <provider
             android:name="androidx.startup.InitializationProvider"

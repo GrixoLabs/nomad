@@ -15,7 +15,6 @@ data class MainUiState(
     val journalEnabled: Boolean = false,
     val isConnected: Boolean = false,
     val isTracking: Boolean = false,
-    val notificationVisible: Boolean = true,
     val shouldAutoStartTracking: Boolean = false,
     val latitude: Double? = null,
     val longitude: Double? = null,

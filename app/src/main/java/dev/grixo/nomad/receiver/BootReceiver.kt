@@ -8,15 +8,15 @@ import android.content.pm.PackageManager
 import androidx.core.content.ContextCompat
 import dagger.hilt.android.AndroidEntryPoint
 import dev.grixo.nomad.data.datastore.PreferenceManager
-import dev.grixo.nomad.service.TrackingService
+import dev.grixo.nomad.worker.TrackingScheduler
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import timber.log.Timber
 import javax.inject.Inject
 
 /**
- * Restarts [TrackingService] after reboot / package replace when the user left
- * tracking enabled. Does not start tracking if location permission is missing.
+ * After reboot / package replace, re-arm the 15-minute location ping schedule
+ * when the user left tracking enabled.
  */
 @AndroidEntryPoint
 class BootReceiver : BroadcastReceiver() {
@@ -43,13 +43,10 @@ class BootReceiver : BroadcastReceiver() {
                 Timber.w("Boot: tracking enabled but location permission missing — skip")
                 return
             }
-            Timber.i("Boot: restarting TrackingService (trackingEnabled=true)")
-            ContextCompat.startForegroundService(
-                context,
-                Intent(context, TrackingService::class.java)
-            )
+            Timber.i("Boot: arming 15-minute location pings")
+            TrackingScheduler.startTracking(context)
         } catch (t: Throwable) {
-            Timber.e(t, "Boot: failed to restart TrackingService")
+            Timber.e(t, "Boot: failed to arm tracking schedule")
         } finally {
             pendingResult.finish()
         }

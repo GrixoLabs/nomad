@@ -42,14 +42,9 @@
     <string name="journal_save">Save entry</string>
     <string name="history_title">History map</string>
     <string name="logout">Log out</string>
-    <string name="tracking_channel_name">Nomad Tracking</string>
-    <string name="tracking_channel_desc">Quiet status while Nomad tracks in the background</string>
-    <string name="tracking_notification_title">Nomad is doing its work. Travel worry free!</string>
-    <string name="tracking_notification_body">Location tracking is active</string>
-    <string name="tracking_notification_silent_title">Nomad tracking</string>
-    <string name="tracking_notification_silent_body">Tracking quietly in the background</string>
-    <string name="tracking_notification_hide">Track quietly</string>
-    <string name="tracking_notification_show">Show status</string>
-    <string name="hide_tracking_notification">Track quietly (minimal status)</string>
-    <string name="tracking_notification_required">Android needs a quiet status while tracking. Use Track quietly to keep it minimal — uploads stay on.</string>
+    <string name="tracking_ping_channel_name">Nomad location ping</string>
+    <string name="tracking_ping_channel_desc">Brief status while Nomad records a location ping</string>
+    <string name="tracking_ping_title">Nomad updating location</string>
+    <string name="tracking_ping_body">Quick background ping — then done</string>
+    <string name="tracking_interval_hint">Pings location about every 15 minutes. No constant notification.</string>
 </resources>

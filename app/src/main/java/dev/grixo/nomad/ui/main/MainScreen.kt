@@ -1,7 +1,6 @@
 package dev.grixo.nomad.ui.main
 
 import android.Manifest
-import android.content.Intent
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -34,13 +33,13 @@ import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
@@ -51,9 +50,10 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.work.WorkManager
 import dev.grixo.nomad.R
-import dev.grixo.nomad.service.TrackingService
 import dev.grixo.nomad.ui.components.BrandLogo
+import dev.grixo.nomad.worker.TrackingScheduler
 import java.util.Locale
 
 @Composable
@@ -73,27 +73,22 @@ fun MainRoute(
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val context = LocalContext.current
+    val workManager = remember { WorkManager.getInstance(context) }
 
-    fun startTrackingService() {
-        val intent = Intent(context, TrackingService::class.java)
-        ContextCompat.startForegroundService(context, intent)
+    fun startTracking() {
         viewModel.setTrackingStatus(true)
+        TrackingScheduler.startTracking(workManager)
     }
 
-    fun stopTrackingService() {
-        // ACTION_STOP_TRACKING persists trackingEnabled=false before stopSelf,
-        // so onDestroy / BootReceiver / deleteIntent will not revive tracking.
-        ContextCompat.startForegroundService(
-            context,
-            Intent(context, TrackingService::class.java)
-                .setAction(TrackingService.ACTION_STOP_TRACKING)
-        )
+    fun stopTracking() {
         viewModel.setTrackingStatus(false)
+        TrackingScheduler.stopTracking(workManager)
+        viewModel.clearGeofences()
     }
 
     LaunchedEffect(uiState.loggedOut) {
         if (uiState.loggedOut) {
-            stopTrackingService()
+            stopTracking()
             viewModel.consumeLogout()
             onLoggedOut()
         }
@@ -121,7 +116,7 @@ fun MainRoute(
             backgroundPermissionLauncher.launch(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
         }
         if (granted) {
-            startTrackingService()
+            startTracking()
         }
     }
 
@@ -136,12 +131,8 @@ fun MainRoute(
             foregroundPermissionLauncher.launch(foregroundPermissions)
             return
         }
-        ContextCompat.startForegroundService(
-            context,
-            Intent(context, TrackingService::class.java)
-                .setAction(TrackingService.ACTION_REFRESH_NOW)
-        )
         viewModel.setTrackingStatus(true)
+        TrackingScheduler.enqueueImmediatePing(workManager)
     }
 
     LaunchedEffect(Unit) {
@@ -150,7 +141,7 @@ fun MainRoute(
         }
     }
 
-    // Resume tracking after permission was previously granted (until logout / manual stop).
+    // Resume 15-min ping schedule after permission was previously granted.
     LaunchedEffect(uiState.shouldAutoStartTracking) {
         if (!uiState.shouldAutoStartTracking) return@LaunchedEffect
         val fine = ContextCompat.checkSelfPermission(
@@ -160,7 +151,7 @@ fun MainRoute(
             context, Manifest.permission.ACCESS_COARSE_LOCATION
         ) == android.content.pm.PackageManager.PERMISSION_GRANTED
         if (fine || coarse) {
-            startTrackingService()
+            startTracking()
             viewModel.consumeAutoStart()
         } else {
             viewModel.consumeAutoStart()
@@ -172,19 +163,7 @@ fun MainRoute(
         onStartTracking = {
             foregroundPermissionLauncher.launch(foregroundPermissions)
         },
-        onStopTracking = { stopTrackingService() },
-        onToggleNotification = { visible ->
-            viewModel.setNotificationVisible(visible)
-            val action = if (visible) {
-                TrackingService.ACTION_SHOW_NOTIFICATION
-            } else {
-                TrackingService.ACTION_HIDE_NOTIFICATION
-            }
-            ContextCompat.startForegroundService(
-                context,
-                Intent(context, TrackingService::class.java).setAction(action)
-            )
-        },
+        onStopTracking = { stopTracking() },
         onSync = viewModel::triggerManualSync,
         onRefresh = viewModel::refreshAll,
         onNearby = viewModel::loadNearbyPlaces,
@@ -214,7 +193,6 @@ fun MainScreen(
     state: MainUiState,
     onStartTracking: () -> Unit,
     onStopTracking: () -> Unit,
-    onToggleNotification: (Boolean) -> Unit,
     onSync: () -> Unit,
     onRefresh: () -> Unit,
     onNearby: () -> Unit,
@@ -289,7 +267,7 @@ fun MainScreen(
 
             SoftPanel {
                 InfoRow("Backend", if (state.isConnected) "Connected" else "Offline")
-                InfoRow("Tracking", if (state.isTracking) "Active" else "Idle")
+                InfoRow("Tracking", if (state.isTracking) "Every ~15 min" else "Idle")
                 InfoRow("Queued signals", state.offlineQueueCount.toString())
                 InfoRow("Account", if (state.isRegistered) "Registered" else "Guest")
             }
@@ -307,7 +285,11 @@ fun MainScreen(
                             fontWeight = FontWeight.Bold
                         )
                         Text(
-                            text = if (state.contextLoading) "Updating…" else "Live",
+                            text = when {
+                                state.contextLoading -> "Updating…"
+                                state.isTracking -> "Every ~15 min"
+                                else -> "Idle"
+                            },
                             style = MaterialTheme.typography.labelLarge,
                             color = colors.primary,
                             fontWeight = FontWeight.SemiBold
@@ -562,29 +544,12 @@ fun MainScreen(
             }
 
             if (state.isTracking) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
-                        Text(
-                            text = stringResource(R.string.hide_tracking_notification),
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = colors.onSurface,
-                            fontWeight = FontWeight.Medium
-                        )
-                        Text(
-                            text = stringResource(R.string.tracking_notification_required),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = colors.onSurfaceVariant
-                        )
-                    }
-                    Switch(
-                        checked = !state.notificationVisible,
-                        onCheckedChange = { quiet -> onToggleNotification(!quiet) }
-                    )
-                }
+                Text(
+                    text = stringResource(R.string.tracking_interval_hint),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = colors.onSurfaceVariant,
+                    modifier = Modifier.align(Alignment.CenterHorizontally)
+                )
             }
 
             OutlinedButton(
