@@ -80,10 +80,20 @@ fun MainRoute(
         viewModel.setTrackingStatus(true)
     }
 
+    fun stopTrackingService() {
+        // ACTION_STOP_TRACKING persists trackingEnabled=false before stopSelf,
+        // so onDestroy / BootReceiver / deleteIntent will not revive tracking.
+        ContextCompat.startForegroundService(
+            context,
+            Intent(context, TrackingService::class.java)
+                .setAction(TrackingService.ACTION_STOP_TRACKING)
+        )
+        viewModel.setTrackingStatus(false)
+    }
+
     LaunchedEffect(uiState.loggedOut) {
         if (uiState.loggedOut) {
-            context.stopService(Intent(context, TrackingService::class.java))
-            viewModel.setTrackingStatus(false)
+            stopTrackingService()
             viewModel.consumeLogout()
             onLoggedOut()
         }
@@ -162,10 +172,7 @@ fun MainRoute(
         onStartTracking = {
             foregroundPermissionLauncher.launch(foregroundPermissions)
         },
-        onStopTracking = {
-            context.stopService(Intent(context, TrackingService::class.java))
-            viewModel.setTrackingStatus(false)
-        },
+        onStopTracking = { stopTrackingService() },
         onToggleNotification = { visible ->
             viewModel.setNotificationVisible(visible)
             val action = if (visible) {

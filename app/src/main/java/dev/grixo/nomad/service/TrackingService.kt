@@ -6,13 +6,14 @@ import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
 import android.os.Looper
+import androidx.core.content.ContextCompat
+import androidx.work.WorkManager
 import com.google.android.gms.location.FusedLocationProviderClient
 import com.google.android.gms.location.LocationCallback
 import com.google.android.gms.location.LocationRequest
 import com.google.android.gms.location.LocationResult
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
-import androidx.work.WorkManager
 import dagger.hilt.android.AndroidEntryPoint
 import dev.grixo.nomad.data.datastore.PreferenceManager
 import dev.grixo.nomad.data.location.LocationBus
@@ -23,7 +24,9 @@ import dev.grixo.nomad.worker.SyncScheduler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import timber.log.Timber
 import javax.inject.Inject
 
@@ -45,12 +48,16 @@ class TrackingService : Service() {
     private lateinit var locationCallback: LocationCallback
     private var updatesRequested = false
     private var foregroundReady = false
+    /** True only for explicit user/logout stop — suppresses sticky restart. */
+    @Volatile
+    private var intentionalStop = false
     @Volatile
     private var notificationProminent = true
 
     override fun onCreate() {
         super.onCreate()
         Timber.d("TrackingService created")
+        intentionalStop = false
         NotificationHelper.createNotificationChannel(this)
         serviceScope.launch {
             preferenceManager.trackingNotificationVisible.collect { visible ->
@@ -89,11 +96,26 @@ class TrackingService : Service() {
                 promoteToForeground()
                 return START_STICKY
             }
+            ACTION_RECREATE_NOTIFICATION -> {
+                // Shade cleared (API 34+) or system demoted FGS — re-promote immediately.
+                Timber.i("Recreate tracking notification / re-promote FGS")
+                intentionalStop = false
+                foregroundReady = false
+                serviceScope.launch { preferenceManager.setTrackingEnabled(true) }
+                promoteToForeground()
+                SyncScheduler.enqueuePeriodic(WorkManager.getInstance(this))
+                // Force a fresh location request registration after demotion.
+                updatesRequested = false
+                requestLocationUpdates()
+                fetchImmediateLocation()
+                return START_STICKY
+            }
             ACTION_STOP_TRACKING -> {
-                serviceScope.launch {
-                    preferenceManager.setTrackingEnabled(false)
-                    signalRepository.syncSignals()
-                }
+                Timber.i("Explicit stop tracking")
+                intentionalStop = true
+                // Persist off before stopSelf so onDestroy / receivers do not revive.
+                runBlocking { preferenceManager.setTrackingEnabled(false) }
+                serviceScope.launch { signalRepository.syncSignals() }
                 SyncScheduler.cancelPeriodic(WorkManager.getInstance(this))
                 stopSelf()
                 return START_NOT_STICKY
@@ -101,6 +123,7 @@ class TrackingService : Service() {
             ACTION_REFRESH_NOW -> {
                 // Refresh location/upload only — do not re-alert the notification.
                 Timber.i("Refresh now — fetching location and syncing offline queue")
+                intentionalStop = false
                 serviceScope.launch { preferenceManager.setTrackingEnabled(true) }
                 ensureForegroundQuietly()
                 SyncScheduler.enqueuePeriodic(WorkManager.getInstance(this))
@@ -112,6 +135,7 @@ class TrackingService : Service() {
         }
 
         Timber.d("TrackingService started")
+        intentionalStop = false
         serviceScope.launch { preferenceManager.setTrackingEnabled(true) }
         ensureForegroundQuietly()
         SyncScheduler.enqueuePeriodic(WorkManager.getInstance(this))
@@ -208,20 +232,54 @@ class TrackingService : Service() {
 
     override fun onBind(intent: Intent?): IBinder? = null
 
+    /**
+     * Swipe-away from Recents must not end tracking. Restart unless the user
+     * explicitly stopped (or logged out) via [ACTION_STOP_TRACKING].
+     */
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        super.onTaskRemoved(rootIntent)
+        if (intentionalStop) return
+        val stillEnabled = try {
+            runBlocking { preferenceManager.trackingEnabled.first() }
+        } catch (_: Throwable) {
+            true
+        }
+        if (!stillEnabled) return
+        Timber.i("Task removed — restarting TrackingService")
+        ContextCompat.startForegroundService(
+            applicationContext,
+            Intent(applicationContext, TrackingService::class.java)
+        )
+    }
+
     override fun onDestroy() {
-        Timber.d("TrackingService destroyed")
+        Timber.d("TrackingService destroyed (intentionalStop=%s)", intentionalStop)
         if (::fusedLocationClient.isInitialized && ::locationCallback.isInitialized) {
             fusedLocationClient.removeLocationUpdates(locationCallback)
         }
         SyncScheduler.enqueueOnce(this)
+        val shouldRestart = !intentionalStop && try {
+            runBlocking { preferenceManager.trackingEnabled.first() }
+        } catch (_: Throwable) {
+            false
+        }
         serviceJob.cancel()
         super.onDestroy()
+        if (shouldRestart) {
+            Timber.i("Service destroyed while trackingEnabled — restarting")
+            ContextCompat.startForegroundService(
+                applicationContext,
+                Intent(applicationContext, TrackingService::class.java)
+            )
+        }
     }
 
     companion object {
         const val ACTION_HIDE_NOTIFICATION = "dev.grixo.nomad.action.HIDE_NOTIFICATION"
         const val ACTION_SHOW_NOTIFICATION = "dev.grixo.nomad.action.SHOW_NOTIFICATION"
         const val ACTION_STOP_TRACKING = "dev.grixo.nomad.action.STOP_TRACKING"
+        /** Re-promote FGS after shade clear / system demotion. */
+        const val ACTION_RECREATE_NOTIFICATION = "dev.grixo.nomad.action.RECREATE_NOTIFICATION"
         /** Force GPS fix + upload + offline drain (Sync now / pull-to-refresh). */
         const val ACTION_REFRESH_NOW = "dev.grixo.nomad.action.REFRESH_NOW"
     }
