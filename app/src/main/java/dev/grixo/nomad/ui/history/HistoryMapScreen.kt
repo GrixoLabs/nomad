@@ -314,8 +314,8 @@ private fun MapLibreHistoryMap(
     var mapReady by remember { mutableStateOf(false) }
     var fittedOnce by remember { mutableStateOf(false) }
     val blinkAnimator = remember {
-        ValueAnimator.ofFloat(0.35f, 1f).apply {
-            duration = 900L
+        ValueAnimator.ofFloat(0f, 1f).apply {
+            duration = 750L
             repeatMode = ValueAnimator.REVERSE
             repeatCount = ValueAnimator.INFINITE
             interpolator = AccelerateDecelerateInterpolator()
@@ -329,7 +329,7 @@ private fun MapLibreHistoryMap(
                 Lifecycle.Event.ON_START -> mapView.onStart()
                 Lifecycle.Event.ON_RESUME -> {
                     mapView.onResume()
-                    blinkAnimator.start()
+                    if (!blinkAnimator.isStarted) blinkAnimator.start()
                 }
                 Lifecycle.Event.ON_PAUSE -> {
                     blinkAnimator.cancel()
@@ -356,14 +356,19 @@ private fun MapLibreHistoryMap(
 
     DisposableEffect(blinkAnimator, mapView) {
         val listener = ValueAnimator.AnimatorUpdateListener { anim ->
-            val opacity = anim.animatedValue as Float
+            val t = anim.animatedValue as Float
+            // Pulse opacity + halo size so current location clearly blinks red.
+            val dotOpacity = 0.45f + (0.55f * t)
+            val haloOpacity = 0.15f + (0.40f * t)
+            val haloRadius = 12f + (10f * t)
             mapView.getMapAsync { map ->
                 map.getStyle { style ->
                     (style.getLayer(LAYER_LIVE_DOT) as? CircleLayer)?.setProperties(
-                        PropertyFactory.circleOpacity(opacity)
+                        PropertyFactory.circleOpacity(dotOpacity)
                     )
                     (style.getLayer(LAYER_LIVE_HALO) as? CircleLayer)?.setProperties(
-                        PropertyFactory.circleOpacity(opacity * 0.35f)
+                        PropertyFactory.circleOpacity(haloOpacity),
+                        PropertyFactory.circleRadius(haloRadius)
                     )
                 }
             }
@@ -551,22 +556,27 @@ private fun ensureLiveLayers(style: Style, liveLocation: HistoryLiveLocation?) {
         style.addSource(GeoJsonSource(SOURCE_LIVE, collection))
         style.addLayer(
             CircleLayer(LAYER_LIVE_HALO, SOURCE_LIVE).withProperties(
-                PropertyFactory.circleRadius(14f),
+                PropertyFactory.circleRadius(16f),
                 PropertyFactory.circleColor(Color.parseColor(COLOR_LIVE)),
-                PropertyFactory.circleOpacity(0.28f)
+                PropertyFactory.circleOpacity(0.35f)
             )
         )
         style.addLayer(
             CircleLayer(LAYER_LIVE_DOT, SOURCE_LIVE).withProperties(
-                PropertyFactory.circleRadius(6.5f),
+                PropertyFactory.circleRadius(7.5f),
                 PropertyFactory.circleColor(Color.parseColor(COLOR_LIVE)),
-                PropertyFactory.circleStrokeWidth(2f),
+                PropertyFactory.circleStrokeWidth(2.5f),
                 PropertyFactory.circleStrokeColor(Color.WHITE),
                 PropertyFactory.circleOpacity(1f)
             )
         )
     } else {
         (style.getSource(SOURCE_LIVE) as? GeoJsonSource)?.setGeoJson(collection)
+        // Keep the blinking current-location marker above trail / stays.
+        runCatching {
+            style.moveLayer(LAYER_LIVE_HALO, null)
+            style.moveLayer(LAYER_LIVE_DOT, null)
+        }
     }
 }
 

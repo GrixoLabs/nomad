@@ -1,7 +1,14 @@
 package dev.grixo.nomad.ui.history
 
+import android.Manifest
+import android.app.Application
+import android.content.pm.PackageManager
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.google.android.gms.location.LocationServices
+import com.google.android.gms.location.Priority
+import com.google.android.gms.tasks.CancellationTokenSource
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dev.grixo.nomad.data.location.LocationBus
 import dev.grixo.nomad.data.network.model.HistoryResponse
@@ -17,6 +24,9 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.suspendCancellableCoroutine
+import timber.log.Timber
+import kotlin.coroutines.resume
 
 data class HistoryLiveLocation(
     val latitude: Double,
@@ -44,6 +54,7 @@ data class HistoryMapUiState(
 
 @HiltViewModel
 class HistoryMapViewModel @Inject constructor(
+    private val app: Application,
     private val journalRepository: JournalRepository,
     private val locationBus: LocationBus
 ) : ViewModel() {
@@ -52,9 +63,22 @@ class HistoryMapViewModel @Inject constructor(
     val uiState: StateFlow<HistoryMapUiState> = _uiState.asStateFlow()
 
     init {
+        // Seed from last published ping (LocationBus has replay=1).
+        locationBus.events.replayCache.lastOrNull()?.let { event ->
+            _uiState.update {
+                it.copy(
+                    liveLocation = HistoryLiveLocation(
+                        latitude = event.latitude,
+                        longitude = event.longitude,
+                        bearingDeg = event.bearingDeg
+                    )
+                )
+            }
+        }
+        seedLiveLocationFromDevice()
         reload()
         viewModelScope.launch {
-            var prev: HistoryLiveLocation? = null
+            var prev: HistoryLiveLocation? = _uiState.value.liveLocation
             locationBus.events.collect { event ->
                 val bearing = event.bearingDeg ?: prev?.let { last ->
                     bearingBetween(
@@ -74,6 +98,62 @@ class HistoryMapViewModel @Inject constructor(
             }
         }
     }
+
+    /** One-shot GPS so the red live blink shows even between 15-min pings. */
+    private fun seedLiveLocationFromDevice() {
+        if (!hasLocationPermission()) return
+        viewModelScope.launch {
+            val location = fetchDeviceLocation() ?: return@launch
+            if (_uiState.value.liveLocation != null) return@launch
+            _uiState.update {
+                it.copy(
+                    liveLocation = HistoryLiveLocation(
+                        latitude = location.latitude,
+                        longitude = location.longitude,
+                        bearingDeg = if (location.hasBearing()) location.bearing else null
+                    )
+                )
+            }
+        }
+    }
+
+    private fun hasLocationPermission(): Boolean {
+        val fine = ContextCompat.checkSelfPermission(
+            app, Manifest.permission.ACCESS_FINE_LOCATION
+        ) == PackageManager.PERMISSION_GRANTED
+        val coarse = ContextCompat.checkSelfPermission(
+            app, Manifest.permission.ACCESS_COARSE_LOCATION
+        ) == PackageManager.PERMISSION_GRANTED
+        return fine || coarse
+    }
+
+    private suspend fun fetchDeviceLocation(): android.location.Location? {
+        val client = LocationServices.getFusedLocationProviderClient(app)
+        return try {
+            val cts = CancellationTokenSource()
+            try {
+                awaitTask(
+                    client.getCurrentLocation(Priority.PRIORITY_BALANCED_POWER_ACCURACY, cts.token)
+                ) ?: awaitTask(client.lastLocation)
+            } finally {
+                cts.cancel()
+            }
+        } catch (t: Throwable) {
+            Timber.w(t, "History map: could not seed live location")
+            null
+        }
+    }
+
+    private suspend fun <T> awaitTask(task: com.google.android.gms.tasks.Task<T>): T? =
+        suspendCancellableCoroutine { cont ->
+            task.addOnSuccessListener { value ->
+                if (cont.isActive) cont.resume(value)
+            }.addOnFailureListener {
+                if (cont.isActive) cont.resume(null)
+            }.addOnCanceledListener {
+                if (cont.isActive) cont.resume(null)
+            }
+        }
 
     private fun bearingBetween(
         lat1: Double,
