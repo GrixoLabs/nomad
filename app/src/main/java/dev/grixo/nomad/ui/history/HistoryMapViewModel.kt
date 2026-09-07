@@ -268,6 +268,7 @@ class HistoryMapViewModel @Inject constructor(
     }
 
     fun reload() {
+        seedLiveLocationFromDevice()
         viewModelScope.launch {
             _uiState.update {
                 it.copy(
