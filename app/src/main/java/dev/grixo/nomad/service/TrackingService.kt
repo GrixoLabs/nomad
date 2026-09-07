@@ -100,10 +100,14 @@ class TrackingService : Service() {
                 // Shade cleared (API 34+) or system demoted FGS — re-promote immediately.
                 Timber.i("Recreate tracking notification / re-promote FGS")
                 intentionalStop = false
+                foregroundReady = false
                 serviceScope.launch { preferenceManager.setTrackingEnabled(true) }
                 promoteToForeground()
                 SyncScheduler.enqueuePeriodic(WorkManager.getInstance(this))
+                // Force a fresh location request registration after demotion.
+                updatesRequested = false
                 requestLocationUpdates()
+                fetchImmediateLocation()
                 return START_STICKY
             }
             ACTION_STOP_TRACKING -> {
