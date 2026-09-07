@@ -572,11 +572,6 @@ private fun ensureLiveLayers(style: Style, liveLocation: HistoryLiveLocation?) {
         )
     } else {
         (style.getSource(SOURCE_LIVE) as? GeoJsonSource)?.setGeoJson(collection)
-        // Keep the blinking current-location marker above trail / stays.
-        runCatching {
-            style.moveLayer(LAYER_LIVE_HALO, null)
-            style.moveLayer(LAYER_LIVE_DOT, null)
-        }
     }
 }
 
