@@ -254,13 +254,15 @@ class HistoryMapViewModel @Inject constructor(
                 journalIndex = idx,
                 detailTitle = when {
                     journal != null -> journal.created_at.take(16).replace('T', ' ')
-                    plot.night_stayed -> "Night stay"
+                    plot.night_stayed -> "Overnight stay"
+                    plot.total_time_hours >= 1.0 -> "Long stay"
                     else -> plot.place_label ?: "Location"
                 },
                 detailBody = buildString {
                     plot.place_label?.let { label -> append(label).append('\n') }
                     append("Dwell ${"%.1f".format(plot.total_time_hours)} h")
-                    if (plot.night_stayed) append(" · night stayed")
+                    if (plot.night_stayed) append(" · overnight")
+                    else if (plot.total_time_hours >= 1.0) append(" · 1 km stay")
                     append(" · visits ${plot.visit_count}")
                     if (journal != null) {
                         append("\n\n")

@@ -60,7 +60,6 @@ import org.maplibre.android.geometry.LatLng
 import org.maplibre.android.geometry.LatLngBounds
 import org.maplibre.android.maps.MapView
 import org.maplibre.android.maps.Style
-import org.maplibre.android.style.expressions.Expression
 import org.maplibre.android.style.layers.CircleLayer
 import org.maplibre.android.style.layers.LineLayer
 import org.maplibre.android.style.layers.PropertyFactory
@@ -68,7 +67,6 @@ import org.maplibre.android.style.layers.SymbolLayer
 import org.maplibre.android.style.sources.GeoJsonSource
 import org.maplibre.geojson.Feature
 import org.maplibre.geojson.FeatureCollection
-import org.maplibre.geojson.LineString
 import org.maplibre.geojson.Point
 
 @Composable
@@ -437,69 +435,78 @@ private fun addHistoryLayers(
     history: HistoryResponse,
     liveLocation: HistoryLiveLocation?
 ) {
-    // Brand: MidnightBlue path + sparse trail arrows, amber nights, red live.
+    val (longStays, overnight) = HistoryMapGeometry.stayMarkers(history)
+
+    // Thick light-blue travel path (great-circle arcs for >1000 km jumps).
     if (style.getSource(SOURCE_TRACKS) == null) {
-        style.addSource(GeoJsonSource(SOURCE_TRACKS, trackCollection(history)))
+        style.addSource(GeoJsonSource(SOURCE_TRACKS, HistoryMapGeometry.trackCollection(history)))
         style.addLayer(
             LineLayer(LAYER_PATH, SOURCE_TRACKS).withProperties(
                 PropertyFactory.lineColor(Color.parseColor(COLOR_PATH)),
-                PropertyFactory.lineWidth(3.0f),
-                PropertyFactory.lineOpacity(0.92f),
+                PropertyFactory.lineWidth(6.5f),
+                PropertyFactory.lineOpacity(0.95f),
                 PropertyFactory.lineCap("round"),
                 PropertyFactory.lineJoin("round")
             )
         )
     }
 
-    ensureTrailArrowImage(style)
-    if (style.getSource(SOURCE_ARROWS) == null) {
-        style.addSource(GeoJsonSource(SOURCE_ARROWS, directionArrowCollection(history)))
+    // ≥1 h within ~1 km — solid dark-red highlight (non-overnight).
+    if (style.getSource(SOURCE_STAYS) == null) {
+        style.addSource(
+            GeoJsonSource(SOURCE_STAYS, HistoryMapGeometry.longStayCollection(longStays))
+        )
         style.addLayer(
-            SymbolLayer(LAYER_TRAIL_ARROWS, SOURCE_ARROWS).withProperties(
-                PropertyFactory.iconImage(TRAIL_ARROW_IMAGE),
-                PropertyFactory.iconSize(0.55f),
-                PropertyFactory.iconAllowOverlap(true),
-                PropertyFactory.iconIgnorePlacement(true),
-                PropertyFactory.iconRotate(Expression.get("bearing")),
-                PropertyFactory.iconRotationAlignment("map"),
-                PropertyFactory.iconAnchor("center"),
-                PropertyFactory.iconOpacity(0.85f)
+            CircleLayer(LAYER_STAY_HALO, SOURCE_STAYS).withProperties(
+                PropertyFactory.circleRadius(11f),
+                PropertyFactory.circleColor(Color.parseColor(COLOR_STAY_HALO)),
+                PropertyFactory.circleOpacity(0.35f)
+            )
+        )
+        style.addLayer(
+            CircleLayer(LAYER_STAYS, SOURCE_STAYS).withProperties(
+                PropertyFactory.circleRadius(6.5f),
+                PropertyFactory.circleColor(Color.parseColor(COLOR_STAY)),
+                PropertyFactory.circleStrokeWidth(1.5f),
+                PropertyFactory.circleStrokeColor(Color.WHITE)
             )
         )
     } else {
-        (style.getSource(SOURCE_ARROWS) as? GeoJsonSource)
-            ?.setGeoJson(directionArrowCollection(history))
+        (style.getSource(SOURCE_STAYS) as? GeoJsonSource)
+            ?.setGeoJson(HistoryMapGeometry.longStayCollection(longStays))
     }
 
-    // Overnight stays only — no dense day dots.
+    // Overnight stays — tightened logic, dark-red concentric rings.
     if (style.getSource(SOURCE_PLOTS) == null) {
-        style.addSource(GeoJsonSource(SOURCE_PLOTS, nightPlotCollection(history)))
+        style.addSource(
+            GeoJsonSource(SOURCE_PLOTS, HistoryMapGeometry.overnightCollection(overnight))
+        )
         style.addLayer(
             CircleLayer(LAYER_NIGHT_OUTER, SOURCE_PLOTS).withProperties(
-                PropertyFactory.circleRadius(20f),
-                PropertyFactory.circleColor(Color.parseColor("#33F59E0B")),
-                PropertyFactory.circleStrokeWidth(2.5f),
-                PropertyFactory.circleStrokeColor(Color.parseColor("#B45309"))
+                PropertyFactory.circleRadius(14f),
+                PropertyFactory.circleColor(Color.parseColor(COLOR_NIGHT_HALO)),
+                PropertyFactory.circleStrokeWidth(1.5f),
+                PropertyFactory.circleStrokeColor(Color.parseColor(COLOR_STAY))
             )
         )
         style.addLayer(
             CircleLayer(LAYER_NIGHT_RING, SOURCE_PLOTS).withProperties(
-                PropertyFactory.circleRadius(12f),
+                PropertyFactory.circleRadius(8.5f),
                 PropertyFactory.circleColor(Color.TRANSPARENT),
-                PropertyFactory.circleStrokeWidth(3f),
-                PropertyFactory.circleStrokeColor(Color.parseColor("#D97706"))
+                PropertyFactory.circleStrokeWidth(2.5f),
+                PropertyFactory.circleStrokeColor(Color.parseColor(COLOR_STAY))
             )
         )
         style.addLayer(
             CircleLayer(LAYER_NIGHTS, SOURCE_PLOTS).withProperties(
-                PropertyFactory.circleRadius(5f),
-                PropertyFactory.circleColor(Color.parseColor("#92400E")),
+                PropertyFactory.circleRadius(3.5f),
+                PropertyFactory.circleColor(Color.parseColor(COLOR_STAY)),
                 PropertyFactory.circleStrokeWidth(0f)
             )
         )
     } else {
         (style.getSource(SOURCE_PLOTS) as? GeoJsonSource)
-            ?.setGeoJson(nightPlotCollection(history))
+            ?.setGeoJson(HistoryMapGeometry.overnightCollection(overnight))
     }
 
     ensureJournalPinImage(style)
@@ -518,7 +525,6 @@ private fun addHistoryLayers(
         (style.getSource(SOURCE_JOURNALS) as? GeoJsonSource)?.setGeoJson(journalCollection(history))
     }
 
-    ensureDirectionArrowImage(style)
     ensureLiveLayers(style, liveLocation)
 }
 
@@ -527,14 +533,15 @@ private fun updateHistoryLayers(
     history: HistoryResponse,
     liveLocation: HistoryLiveLocation?
 ) {
-    (style.getSource(SOURCE_TRACKS) as? GeoJsonSource)?.setGeoJson(trackCollection(history))
-    ensureTrailArrowImage(style)
-    (style.getSource(SOURCE_ARROWS) as? GeoJsonSource)
-        ?.setGeoJson(directionArrowCollection(history))
-    (style.getSource(SOURCE_PLOTS) as? GeoJsonSource)?.setGeoJson(nightPlotCollection(history))
+    val (longStays, overnight) = HistoryMapGeometry.stayMarkers(history)
+    (style.getSource(SOURCE_TRACKS) as? GeoJsonSource)
+        ?.setGeoJson(HistoryMapGeometry.trackCollection(history))
+    (style.getSource(SOURCE_STAYS) as? GeoJsonSource)
+        ?.setGeoJson(HistoryMapGeometry.longStayCollection(longStays))
+    (style.getSource(SOURCE_PLOTS) as? GeoJsonSource)
+        ?.setGeoJson(HistoryMapGeometry.overnightCollection(overnight))
     ensureJournalPinImage(style)
     (style.getSource(SOURCE_JOURNALS) as? GeoJsonSource)?.setGeoJson(journalCollection(history))
-    ensureDirectionArrowImage(style)
     ensureLiveLayers(style, liveLocation)
 }
 
@@ -558,18 +565,6 @@ private fun ensureLiveLayers(style: Style, liveLocation: HistoryLiveLocation?) {
                 PropertyFactory.circleOpacity(1f)
             )
         )
-        style.addLayer(
-            SymbolLayer(LAYER_LIVE_ARROW, SOURCE_LIVE).withProperties(
-                PropertyFactory.iconImage(DIRECTION_ARROW_IMAGE),
-                PropertyFactory.iconSize(0.85f),
-                PropertyFactory.iconAllowOverlap(true),
-                PropertyFactory.iconIgnorePlacement(true),
-                PropertyFactory.iconRotate(Expression.get("bearing")),
-                PropertyFactory.iconRotationAlignment("map"),
-                PropertyFactory.iconAnchor("center"),
-                PropertyFactory.iconOffset(arrayOf(0f, -14f))
-            ).withFilter(Expression.eq(Expression.get("has_bearing"), Expression.literal(1)))
-        )
     } else {
         (style.getSource(SOURCE_LIVE) as? GeoJsonSource)?.setGeoJson(collection)
     }
@@ -577,144 +572,8 @@ private fun ensureLiveLayers(style: Style, liveLocation: HistoryLiveLocation?) {
 
 private fun liveCollection(live: HistoryLiveLocation?): FeatureCollection {
     if (live == null) return FeatureCollection.fromFeatures(emptyArray())
-    val feature = Feature.fromGeometry(Point.fromLngLat(live.longitude, live.latitude)).also {
-        val bearing = live.bearingDeg
-        it.addNumberProperty("bearing", bearing ?: 0f)
-        it.addNumberProperty("has_bearing", if (bearing != null) 1 else 0)
-    }
+    val feature = Feature.fromGeometry(Point.fromLngLat(live.longitude, live.latitude))
     return FeatureCollection.fromFeatures(arrayOf(feature))
-}
-
-private fun ensureDirectionArrowImage(style: Style) {
-    if (style.getImage(DIRECTION_ARROW_IMAGE) != null) return
-    style.addImage(DIRECTION_ARROW_IMAGE, createArrowBitmap(filled = true, colorHex = COLOR_LIVE))
-}
-
-private fun ensureTrailArrowImage(style: Style) {
-    if (style.getImage(TRAIL_ARROW_IMAGE) != null) return
-    // Slim midnight chevron — sparse along the path, not a dense pin field.
-    style.addImage(TRAIL_ARROW_IMAGE, createArrowBitmap(filled = false, colorHex = COLOR_PATH))
-}
-
-private fun createArrowBitmap(filled: Boolean, colorHex: String): Bitmap {
-    val size = if (filled) 64 else 48
-    val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
-    val canvas = Canvas(bitmap)
-    val paint = Paint(Paint.ANTI_ALIAS_FLAG)
-    // Points “up” (north); MapLibre rotates by bearing.
-    val path = Path().apply {
-        moveTo(size * 0.5f, size * 0.18f)
-        lineTo(size * 0.72f, size * 0.70f)
-        lineTo(size * 0.5f, size * 0.58f)
-        lineTo(size * 0.28f, size * 0.70f)
-        close()
-    }
-    if (filled) {
-        paint.style = Paint.Style.FILL
-        paint.color = Color.parseColor(colorHex)
-        canvas.drawPath(path, paint)
-        paint.style = Paint.Style.STROKE
-        paint.strokeWidth = 2.5f
-        paint.color = Color.WHITE
-        canvas.drawPath(path, paint)
-    } else {
-        paint.style = Paint.Style.STROKE
-        paint.strokeWidth = 3.2f
-        paint.strokeJoin = Paint.Join.ROUND
-        paint.strokeCap = Paint.Cap.ROUND
-        paint.color = Color.parseColor(colorHex)
-        canvas.drawPath(path, paint)
-    }
-    return bitmap
-}
-
-private fun trackCollection(history: HistoryResponse): FeatureCollection {
-    val features = history.segments.mapNotNull { seg ->
-        if (seg.points.size < 2) return@mapNotNull null
-        val pts = seg.points.map { Point.fromLngLat(it.longitude, it.latitude) }
-        Feature.fromGeometry(LineString.fromLngLats(pts)).also {
-            it.addStringProperty("kind", seg.kind)
-        }
-    }
-    return FeatureCollection.fromFeatures(features)
-}
-
-private fun nightPlotCollection(history: HistoryResponse): FeatureCollection {
-    val features = history.plot_points.filter { it.night_stayed }.map { plot ->
-        Feature.fromGeometry(Point.fromLngLat(plot.longitude, plot.latitude)).also {
-            it.addNumberProperty("plot_id", plot.plot_id)
-            it.addNumberProperty("journal_count", plot.journal_count)
-        }
-    }
-    return FeatureCollection.fromFeatures(features)
-}
-
-/**
- * Sparse movement arrows along the chronological trail.
- * Spacing ~5 km, hard cap so the map stays minimal.
- */
-private fun directionArrowCollection(history: HistoryResponse): FeatureCollection {
-    val pathPoints = history.segments.flatMap { it.points }
-    if (pathPoints.size < 2) {
-        // Fallback: ordered plot cells when segments are thin.
-        val ordered = history.plot_points.sortedBy { it.last_gps_timestamp }
-        return sparseArrowsFromLatLng(
-            ordered.map { it.latitude to it.longitude }
-        )
-    }
-    return sparseArrowsFromLatLng(pathPoints.map { it.latitude to it.longitude })
-}
-
-private fun sparseArrowsFromLatLng(points: List<Pair<Double, Double>>): FeatureCollection {
-    if (points.size < 2) return FeatureCollection.fromFeatures(emptyArray())
-    val features = mutableListOf<Feature>()
-    var lastLat = points.first().first
-    var lastLon = points.first().second
-    var traveledSinceArrow = 0.0
-    val minSpacingM = 5_000.0
-    val maxArrows = 14
-
-    for (i in 1 until points.size) {
-        if (features.size >= maxArrows) break
-        val (lat, lon) = points[i]
-        val step = haversineMeters(lastLat, lastLon, lat, lon)
-        traveledSinceArrow += step
-        val bearing = bearingDegrees(lastLat, lastLon, lat, lon)
-        lastLat = lat
-        lastLon = lon
-        if (bearing == null) continue
-        // Skip tiny jitters; place an arrow after enough travel.
-        if (traveledSinceArrow < minSpacingM && features.isNotEmpty()) continue
-        // Always allow the first arrow after a short move so short trips still show direction.
-        if (features.isEmpty() && traveledSinceArrow < 80.0) continue
-        features += Feature.fromGeometry(Point.fromLngLat(lon, lat)).also {
-            it.addNumberProperty("bearing", bearing)
-        }
-        traveledSinceArrow = 0.0
-    }
-    return FeatureCollection.fromFeatures(features)
-}
-
-private fun haversineMeters(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Double {
-    val r = 6371000.0
-    val p1 = Math.toRadians(lat1)
-    val p2 = Math.toRadians(lat2)
-    val dφ = Math.toRadians(lat2 - lat1)
-    val dλ = Math.toRadians(lon2 - lon1)
-    val a = Math.sin(dφ / 2) * Math.sin(dφ / 2) +
-        Math.cos(p1) * Math.cos(p2) * Math.sin(dλ / 2) * Math.sin(dλ / 2)
-    return 2 * r * Math.asin(Math.min(1.0, Math.sqrt(a)))
-}
-
-private fun bearingDegrees(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Float? {
-    if (lat1 == lat2 && lon1 == lon2) return null
-    val φ1 = Math.toRadians(lat1)
-    val φ2 = Math.toRadians(lat2)
-    val Δλ = Math.toRadians(lon2 - lon1)
-    val y = Math.sin(Δλ) * Math.cos(φ2)
-    val x = Math.cos(φ1) * Math.sin(φ2) - Math.sin(φ1) * Math.cos(φ2) * Math.cos(Δλ)
-    val deg = Math.toDegrees(Math.atan2(y, x))
-    return ((deg + 360.0) % 360.0).toFloat()
 }
 
 private fun journalCollection(history: HistoryResponse): FeatureCollection {
@@ -799,7 +658,9 @@ private fun handleMapClick(
         screen,
         LAYER_NIGHTS,
         LAYER_NIGHT_RING,
-        LAYER_NIGHT_OUTER
+        LAYER_NIGHT_OUTER,
+        LAYER_STAYS,
+        LAYER_STAY_HALO
     )
     plotHits.firstOrNull()?.getNumberProperty("plot_id")?.toLong()?.let {
         onPlotClick(it)
@@ -848,22 +709,23 @@ private fun HistoryDatePickerDialog(
 }
 
 private const val SOURCE_TRACKS = "nomad-tracks"
+private const val SOURCE_STAYS = "nomad-long-stays"
 private const val SOURCE_PLOTS = "nomad-plots"
-private const val SOURCE_ARROWS = "nomad-trail-arrows"
 private const val SOURCE_JOURNALS = "nomad-journals"
 private const val SOURCE_LIVE = "nomad-live"
 private const val LAYER_PATH = "nomad-path"
-private const val LAYER_TRAIL_ARROWS = "nomad-trail-arrows-layer"
+private const val LAYER_STAY_HALO = "nomad-stay-halo"
+private const val LAYER_STAYS = "nomad-stays-dot"
 private const val LAYER_JOURNALS = "nomad-journals-layer"
 private const val LAYER_NIGHTS = "nomad-nights-dot"
 private const val LAYER_NIGHT_RING = "nomad-nights-ring"
 private const val LAYER_NIGHT_OUTER = "nomad-nights-outer"
 private const val LAYER_LIVE_HALO = "nomad-live-halo"
 private const val LAYER_LIVE_DOT = "nomad-live-dot"
-private const val LAYER_LIVE_ARROW = "nomad-live-arrow"
 private const val JOURNAL_PIN_IMAGE = "nomad-journal-pin"
-private const val DIRECTION_ARROW_IMAGE = "nomad-direction-arrow"
-private const val TRAIL_ARROW_IMAGE = "nomad-trail-arrow"
 // Brand-aligned map colors (Color.kt)
-private const val COLOR_PATH = "#1E3A8A" // MidnightBlue
+private const val COLOR_PATH = "#38BDF8" // light sky blue
+private const val COLOR_STAY = "#7F1D1D" // dark red
+private const val COLOR_STAY_HALO = "#991B1B"
+private const val COLOR_NIGHT_HALO = "#337F1D1D"
 private const val COLOR_LIVE = "#DC2626" // NomadDanger
