@@ -440,7 +440,7 @@ private fun addHistoryLayers(
     history: HistoryResponse,
     liveLocation: HistoryLiveLocation?
 ) {
-    val (longStays, overnight) = HistoryMapGeometry.stayMarkers(history)
+    val longStays = HistoryMapGeometry.stayMarkers(history)
 
     // Thick light-blue travel path (great-circle arcs for >1000 km jumps).
     if (style.getSource(SOURCE_TRACKS) == null) {
@@ -456,7 +456,7 @@ private fun addHistoryLayers(
         )
     }
 
-    // ≥1 h within ~500 m — solid dark-red highlight (non-overnight).
+    // ≥1 h within ~500 m — solid dark-red highlight.
     if (style.getSource(SOURCE_STAYS) == null) {
         style.addSource(
             GeoJsonSource(SOURCE_STAYS, HistoryMapGeometry.longStayCollection(longStays))
@@ -479,39 +479,6 @@ private fun addHistoryLayers(
     } else {
         (style.getSource(SOURCE_STAYS) as? GeoJsonSource)
             ?.setGeoJson(HistoryMapGeometry.longStayCollection(longStays))
-    }
-
-    // Overnight stays — tightened logic, dark-red concentric rings.
-    if (style.getSource(SOURCE_PLOTS) == null) {
-        style.addSource(
-            GeoJsonSource(SOURCE_PLOTS, HistoryMapGeometry.overnightCollection(overnight))
-        )
-        style.addLayer(
-            CircleLayer(LAYER_NIGHT_OUTER, SOURCE_PLOTS).withProperties(
-                PropertyFactory.circleRadius(14f),
-                PropertyFactory.circleColor(Color.parseColor(COLOR_NIGHT_HALO)),
-                PropertyFactory.circleStrokeWidth(1.5f),
-                PropertyFactory.circleStrokeColor(Color.parseColor(COLOR_STAY))
-            )
-        )
-        style.addLayer(
-            CircleLayer(LAYER_NIGHT_RING, SOURCE_PLOTS).withProperties(
-                PropertyFactory.circleRadius(8.5f),
-                PropertyFactory.circleColor(Color.TRANSPARENT),
-                PropertyFactory.circleStrokeWidth(2.5f),
-                PropertyFactory.circleStrokeColor(Color.parseColor(COLOR_STAY))
-            )
-        )
-        style.addLayer(
-            CircleLayer(LAYER_NIGHTS, SOURCE_PLOTS).withProperties(
-                PropertyFactory.circleRadius(3.5f),
-                PropertyFactory.circleColor(Color.parseColor(COLOR_STAY)),
-                PropertyFactory.circleStrokeWidth(0f)
-            )
-        )
-    } else {
-        (style.getSource(SOURCE_PLOTS) as? GeoJsonSource)
-            ?.setGeoJson(HistoryMapGeometry.overnightCollection(overnight))
     }
 
     ensureJournalPinImage(style)
@@ -538,13 +505,11 @@ private fun updateHistoryLayers(
     history: HistoryResponse,
     liveLocation: HistoryLiveLocation?
 ) {
-    val (longStays, overnight) = HistoryMapGeometry.stayMarkers(history)
+    val longStays = HistoryMapGeometry.stayMarkers(history)
     (style.getSource(SOURCE_TRACKS) as? GeoJsonSource)
         ?.setGeoJson(HistoryMapGeometry.trackCollection(history))
     (style.getSource(SOURCE_STAYS) as? GeoJsonSource)
         ?.setGeoJson(HistoryMapGeometry.longStayCollection(longStays))
-    (style.getSource(SOURCE_PLOTS) as? GeoJsonSource)
-        ?.setGeoJson(HistoryMapGeometry.overnightCollection(overnight))
     ensureJournalPinImage(style)
     (style.getSource(SOURCE_JOURNALS) as? GeoJsonSource)?.setGeoJson(journalCollection(history))
     ensureLiveLayers(style, liveLocation)
@@ -661,9 +626,6 @@ private fun handleMapClick(
     }
     val plotHits = map.queryRenderedFeatures(
         screen,
-        LAYER_NIGHTS,
-        LAYER_NIGHT_RING,
-        LAYER_NIGHT_OUTER,
         LAYER_STAYS,
         LAYER_STAY_HALO
     )
@@ -715,16 +677,12 @@ private fun HistoryDatePickerDialog(
 
 private const val SOURCE_TRACKS = "nomad-tracks"
 private const val SOURCE_STAYS = "nomad-long-stays"
-private const val SOURCE_PLOTS = "nomad-plots"
 private const val SOURCE_JOURNALS = "nomad-journals"
 private const val SOURCE_LIVE = "nomad-live"
 private const val LAYER_PATH = "nomad-path"
 private const val LAYER_STAY_HALO = "nomad-stay-halo"
 private const val LAYER_STAYS = "nomad-stays-dot"
 private const val LAYER_JOURNALS = "nomad-journals-layer"
-private const val LAYER_NIGHTS = "nomad-nights-dot"
-private const val LAYER_NIGHT_RING = "nomad-nights-ring"
-private const val LAYER_NIGHT_OUTER = "nomad-nights-outer"
 private const val LAYER_LIVE_HALO = "nomad-live-halo"
 private const val LAYER_LIVE_DOT = "nomad-live-dot"
 private const val JOURNAL_PIN_IMAGE = "nomad-journal-pin"
@@ -732,5 +690,4 @@ private const val JOURNAL_PIN_IMAGE = "nomad-journal-pin"
 private const val COLOR_PATH = "#38BDF8" // light sky blue
 private const val COLOR_STAY = "#7F1D1D" // dark red
 private const val COLOR_STAY_HALO = "#991B1B"
-private const val COLOR_NIGHT_HALO = "#337F1D1D"
 private const val COLOR_LIVE = "#DC2626" // NomadDanger

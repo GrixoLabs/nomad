@@ -20,8 +20,6 @@ internal object HistoryMapGeometry {
 
     const val STAY_RADIUS_M = 500.0
     const val LONG_STAY_HOURS = 1.0
-    /** Overnight markers: require meaningful night dwell (tighter than raw flags). */
-    const val OVERNIGHT_IDLE_HOURS = 5.0
     const val FLIGHT_GAP_M = 1_000_000.0
     private const val EARTH_RADIUS_M = 6_371_000.0
 
@@ -29,8 +27,7 @@ internal object HistoryMapGeometry {
         val latitude: Double,
         val longitude: Double,
         val plotId: Long,
-        val hours: Double,
-        val overnight: Boolean
+        val hours: Double
     )
 
     fun trackCollection(history: HistoryResponse): FeatureCollection {
@@ -95,15 +92,9 @@ internal object HistoryMapGeometry {
 
     /**
      * Long stays: cluster plots within 500 m; highlight when dwell ≥ 1 hour.
-     * Overnight: tightened night markers (dark-red encircled), clustered to 500 m.
      */
-    fun stayMarkers(history: HistoryResponse): Pair<List<StayMarker>, List<StayMarker>> {
-        val overnightSeeds = overnightSeedPlots(history)
-        val overnight = clusterStays(overnightSeeds, overnight = true)
-        val overnightIds = overnight.map { it.plotId }.toHashSet()
-
-        // Re-cluster all dwell plots within 500 m for ≥1 h stays.
-        val longClusters = clusterByRadius(history.plot_points.filter { it.total_time_hours > 0 })
+    fun stayMarkers(history: HistoryResponse): List<StayMarker> {
+        return clusterByRadius(history.plot_points.filter { it.total_time_hours > 0 })
             .mapNotNull { cluster ->
                 val hours = cluster.sumOf { it.total_time_hours }
                 if (hours < LONG_STAY_HOURS) return@mapNotNull null
@@ -114,21 +105,9 @@ internal object HistoryMapGeometry {
                     latitude = lat,
                     longitude = lon,
                     plotId = anchor.plot_id,
-                    hours = hours,
-                    overnight = false
+                    hours = hours
                 )
             }
-            // Drop long-stay dots that already have an overnight marker nearby.
-            .filter { stay ->
-                overnight.none { night ->
-                    haversineMeters(
-                        stay.latitude, stay.longitude,
-                        night.latitude, night.longitude
-                    ) <= STAY_RADIUS_M
-                } && stay.plotId !in overnightIds
-            }
-
-        return longClusters to overnight
     }
 
     fun longStayCollection(stays: List<StayMarker>): FeatureCollection {
@@ -139,70 +118,6 @@ internal object HistoryMapGeometry {
             }
         }
         return FeatureCollection.fromFeatures(features)
-    }
-
-    fun overnightCollection(stays: List<StayMarker>): FeatureCollection {
-        val features = stays.map { stay ->
-            Feature.fromGeometry(Point.fromLngLat(stay.longitude, stay.latitude)).also {
-                it.addNumberProperty("plot_id", stay.plotId)
-                it.addNumberProperty("hours", stay.hours)
-            }
-        }
-        return FeatureCollection.fromFeatures(features)
-    }
-
-    /**
-     * Prefer dedicated night_stays with idle ≥ [OVERNIGHT_IDLE_HOURS];
-     * fall back to night_stayed plots with enough total dwell.
-     */
-    private fun overnightSeedPlots(history: HistoryResponse): List<PlotPointResponse> {
-        if (history.night_stays.isNotEmpty()) {
-            val strong = history.night_stays.filter { it.idle_hours >= OVERNIGHT_IDLE_HOURS }
-            if (strong.isNotEmpty()) {
-                return strong.map { night ->
-                    history.plot_points.firstOrNull { plot ->
-                        haversineMeters(
-                            plot.latitude, plot.longitude,
-                            night.latitude, night.longitude
-                        ) <= STAY_RADIUS_M
-                    } ?: PlotPointResponse(
-                        plot_id = night.night_stay_id,
-                        latitude = night.latitude,
-                        longitude = night.longitude,
-                        first_gps_timestamp = night.started_at,
-                        last_gps_timestamp = night.ended_at,
-                        total_time_hours = night.idle_hours,
-                        night_stayed = true
-                    )
-                }
-            }
-        }
-        return history.plot_points.filter { plot ->
-            plot.night_stayed && plot.total_time_hours >= OVERNIGHT_IDLE_HOURS
-        }
-    }
-
-    private fun clusterStays(
-        plots: List<PlotPointResponse>,
-        overnight: Boolean
-    ): List<StayMarker> {
-        if (plots.isEmpty()) return emptyList()
-        return clusterByRadius(plots).map { cluster ->
-            val hours = cluster.sumOf { it.total_time_hours }.coerceAtLeast(
-                cluster.maxOf { it.total_time_hours }
-            )
-            val weight = cluster.sumOf { maxOf(it.total_time_hours, 0.01) }
-            val lat = cluster.sumOf { it.latitude * maxOf(it.total_time_hours, 0.01) } / weight
-            val lon = cluster.sumOf { it.longitude * maxOf(it.total_time_hours, 0.01) } / weight
-            val anchor = cluster.maxBy { it.total_time_hours }
-            StayMarker(
-                latitude = lat,
-                longitude = lon,
-                plotId = anchor.plot_id,
-                hours = hours,
-                overnight = overnight
-            )
-        }
     }
 
     /** Greedy 500 m clustering — merge if within radius of any member. */
